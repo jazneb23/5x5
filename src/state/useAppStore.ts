@@ -54,6 +54,8 @@ interface AppState {
   setBodyweight: (bodyweight: number | null) => void;
   setWorkoutNote: (note: string | null) => void;
   addExerciseToSession: (exerciseId: string) => void;
+  setExercisePrescribedWeight: (exerciseId: string, weight: number) => void;
+  setSetWeight: (exerciseId: string, setIndex: number, weight: number) => void;
   finishWorkout: () => Promise<string>;
   discardWorkout: () => Promise<void>;
 
@@ -378,6 +380,72 @@ export const useAppStore = create<AppState>((set, get) => ({
         },
       ],
     };
+    set({ currentWorkout: nextWorkout });
+    void repo.saveWorkout(nextWorkout);
+  },
+
+  setExercisePrescribedWeight: (exerciseId, weight) => {
+    const workout = get().currentWorkout;
+    if (!workout) return;
+    const { exercises, settings } = get();
+    const exercise = exercises.find((e) => e.id === exerciseId);
+    if (!exercise) return;
+    const exerciseIndex = workout.exercises.findIndex((e) => e.exerciseId === exerciseId);
+    if (exerciseIndex === -1) return;
+
+    const updatedExercises = workout.exercises.map((log, i) => {
+      if (i !== exerciseIndex) return log;
+
+      const oldWarmups = log.sets.filter((s) => s.isWarmup);
+      const oldWorkSets = log.sets.filter((s) => !s.isWarmup);
+
+      let newWarmups = oldWarmups;
+      if (exercise.kind === 'barbell' && exercise.barWeight != null && oldWarmups.length > 0) {
+        const floor = warmupFloor(exercise.id, settings.unit);
+        const recommended = generateWarmupSets(weight, exercise.barWeight, floor, settings.availablePlates);
+        const loggedCount = oldWarmups.filter((s) => s.completedReps != null).length;
+        const kept = oldWarmups.slice(0, loggedCount);
+        const rest = recommended.slice(loggedCount).map((w, i2) => ({
+          setIndex: loggedCount + i2,
+          targetReps: w.targetReps,
+          completedReps: null,
+          weight: w.weight,
+          isWarmup: true,
+          loggedAt: null,
+        }));
+        newWarmups = [...kept, ...rest];
+      }
+
+      const newWorkSets = oldWorkSets.map((s, i2) => ({
+        ...s,
+        setIndex: newWarmups.length + i2,
+        weight: s.completedReps != null ? s.weight : weight,
+      }));
+
+      return { ...log, prescribedWeight: weight, sets: [...newWarmups, ...newWorkSets] };
+    });
+
+    const nextWorkout = { ...workout, exercises: updatedExercises };
+    set({ currentWorkout: nextWorkout });
+    void repo.saveWorkout(nextWorkout);
+  },
+
+  setSetWeight: (exerciseId, setIndex, weight) => {
+    const workout = get().currentWorkout;
+    if (!workout) return;
+    const exerciseIndex = workout.exercises.findIndex((e) => e.exerciseId === exerciseId);
+    if (exerciseIndex === -1) return;
+
+    const updatedExercises = workout.exercises.map((log, i) => {
+      if (i !== exerciseIndex) return log;
+      const setIdx = log.sets.findIndex((s) => s.setIndex === setIndex);
+      if (setIdx === -1) return log;
+      const newSets = [...log.sets];
+      newSets[setIdx] = { ...newSets[setIdx], weight };
+      return { ...log, sets: newSets };
+    });
+
+    const nextWorkout = { ...workout, exercises: updatedExercises };
     set({ currentWorkout: nextWorkout });
     void repo.saveWorkout(nextWorkout);
   },

@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MoreHorizontal } from 'lucide-react';
+import { MoreHorizontal, Pencil } from 'lucide-react';
 import type { ExerciseLog } from '../../domain/types';
 import { useAppStore } from '../../state/useAppStore';
 import { ScreenHeader } from '../../components/ScreenHeader';
@@ -18,6 +18,15 @@ function formatElapsed(startedAt: number): string {
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}` : `${m} min`;
 }
 
+function isExerciseLogged(log: ExerciseLog): boolean {
+  return log.sets.filter((s) => !s.isWarmup).every((s) => s.completedReps != null);
+}
+
+type EntrySheetState =
+  | { kind: 'reps'; exerciseId: string; setIndex: number; targetReps: number; value: number }
+  | { kind: 'weight'; exerciseId: string; value: number }
+  | { kind: 'warmupWeight'; exerciseId: string; setIndex: number; value: number };
+
 export function WorkoutScreen() {
   const navigate = useNavigate();
   const workout = useAppStore((s) => s.currentWorkout);
@@ -27,15 +36,21 @@ export function WorkoutScreen() {
   const setReps = useAppStore((s) => s.setReps);
   const setExerciseNote = useAppStore((s) => s.setExerciseNote);
   const addExerciseToSession = useAppStore((s) => s.addExerciseToSession);
+  const setExercisePrescribedWeight = useAppStore((s) => s.setExercisePrescribedWeight);
+  const setSetWeight = useAppStore((s) => s.setSetWeight);
   const discardWorkout = useAppStore((s) => s.discardWorkout);
   const finishWorkout = useAppStore((s) => s.finishWorkout);
 
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [activeIndex, setActiveIndex] = useState(() => {
+    if (!workout) return 0;
+    const idx = workout.exercises.findIndex((log) => !isExerciseLogged(log));
+    return idx === -1 ? workout.exercises.length - 1 : idx;
+  });
   const [expandedWarmup, setExpandedWarmup] = useState<Record<string, boolean>>({});
   const [expandedNote, setExpandedNote] = useState<Record<string, boolean>>({});
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
-  const [keypad, setKeypad] = useState<{ exerciseId: string; setIndex: number; targetReps: number; value: number } | null>(null);
+  const [entrySheet, setEntrySheet] = useState<EntrySheetState | null>(null);
   const [addExerciseOpen, setAddExerciseOpen] = useState(false);
   const [, forceElapsedTick] = useState(0);
 
@@ -50,18 +65,24 @@ export function WorkoutScreen() {
 
   useWakeLock(Boolean(workout) && settings.keepScreenAwake);
 
-  const isExerciseLogged = (log: ExerciseLog) => log.sets.filter((s) => !s.isWarmup).every((s) => s.completedReps != null);
-
-  const activeLog = workout?.exercises[activeIndex];
-  const lastLoggedRef = useMemo(() => activeLog && isExerciseLogged(activeLog), [activeLog]);
+  // Auto-advance fires once, only on the moment an exercise's sets go from
+  // incomplete to complete while it is the active one. Navigating back to an
+  // already-completed exercise must not re-trigger it — see workout screen
+  // navigation requirement.
+  const wasLoggedRef = useRef<Record<string, boolean>>({});
 
   useEffect(() => {
     if (!workout) return;
-    if (lastLoggedRef && activeIndex < workout.exercises.length - 1) {
+    const activeLog = workout.exercises[activeIndex];
+    if (!activeLog) return;
+    const nowLogged = isExerciseLogged(activeLog);
+    const prevLogged = wasLoggedRef.current[activeLog.exerciseId] ?? false;
+    wasLoggedRef.current[activeLog.exerciseId] = nowLogged;
+    if (!prevLogged && nowLogged && activeIndex < workout.exercises.length - 1) {
       const timeout = setTimeout(() => setActiveIndex((i) => i + 1), 900);
       return () => clearTimeout(timeout);
     }
-  }, [lastLoggedRef, activeIndex, workout]);
+  }, [workout, activeIndex]);
 
   if (!workout) return null;
 
@@ -179,9 +200,20 @@ export function WorkoutScreen() {
               </p>
               <h2 className="mb-4 text-title text-chalk-100">{exercise.name}</h2>
 
-              <div className="mb-4 text-center">
+              <div className="mb-2 text-center">
                 <span className="font-display text-weight-hero text-chalk-100">{log.prescribedWeight}</span>
                 <span className="ml-2 align-baseline text-label text-chalk-500">{settings.unit.toUpperCase()}</span>
+              </div>
+
+              <div className="mb-4 flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => setEntrySheet({ kind: 'weight', exerciseId: log.exerciseId, value: log.prescribedWeight })}
+                  className="flex items-center gap-1 text-label uppercase tracking-[0.12em] text-chalk-500"
+                >
+                  <Pencil size={12} aria-hidden="true" />
+                  Edit weight
+                </button>
               </div>
 
               {exercise.kind === 'barbell' && exercise.barWeight != null && (
@@ -213,10 +245,18 @@ export function WorkoutScreen() {
                             index={s.setIndex}
                             onTap={() => tapSetCircle(log.exerciseId, s.setIndex)}
                             onLongPress={(current) =>
-                              setKeypad({ exerciseId: log.exerciseId, setIndex: s.setIndex, targetReps: s.targetReps, value: current })
+                              setEntrySheet({ kind: 'reps', exerciseId: log.exerciseId, setIndex: s.setIndex, targetReps: s.targetReps, value: current })
                             }
                           />
-                          <span className="text-label text-chalk-500">{s.weight}</span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setEntrySheet({ kind: 'warmupWeight', exerciseId: log.exerciseId, setIndex: s.setIndex, value: s.weight })
+                            }
+                            className="text-label text-chalk-500 underline decoration-dotted underline-offset-2"
+                          >
+                            {s.weight}
+                          </button>
                         </div>
                       ))}
                     </div>
@@ -234,7 +274,7 @@ export function WorkoutScreen() {
                       index={workSets.indexOf(s)}
                       onTap={() => tapSetCircle(log.exerciseId, s.setIndex)}
                       onLongPress={(current) =>
-                        setKeypad({ exerciseId: log.exerciseId, setIndex: s.setIndex, targetReps: s.targetReps, value: current })
+                        setEntrySheet({ kind: 'reps', exerciseId: log.exerciseId, setIndex: s.setIndex, targetReps: s.targetReps, value: current })
                       }
                     />
                   </div>
@@ -327,14 +367,24 @@ export function WorkoutScreen() {
       />
 
       <NumericEntrySheet
-        open={keypad != null}
-        initialValue={keypad?.value ?? 0}
-        label={keypad ? `Reps (target ${keypad.targetReps})` : ''}
+        open={entrySheet != null}
+        initialValue={entrySheet?.value ?? 0}
+        label={
+          entrySheet?.kind === 'reps'
+            ? `Reps (target ${entrySheet.targetReps})`
+            : entrySheet?.kind === 'weight'
+              ? `Weight (${settings.unit.toUpperCase()})`
+              : entrySheet?.kind === 'warmupWeight'
+                ? `Warmup weight (${settings.unit.toUpperCase()})`
+                : ''
+        }
         onSubmit={(value) => {
-          if (keypad) setReps(keypad.exerciseId, keypad.setIndex, value);
-          setKeypad(null);
+          if (entrySheet?.kind === 'reps') setReps(entrySheet.exerciseId, entrySheet.setIndex, value);
+          else if (entrySheet?.kind === 'weight') setExercisePrescribedWeight(entrySheet.exerciseId, value);
+          else if (entrySheet?.kind === 'warmupWeight') setSetWeight(entrySheet.exerciseId, entrySheet.setIndex, value);
+          setEntrySheet(null);
         }}
-        onCancel={() => setKeypad(null)}
+        onCancel={() => setEntrySheet(null)}
       />
     </div>
   );
