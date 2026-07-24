@@ -11,23 +11,32 @@ interface NumericEntrySheetProps {
 
 export function NumericEntrySheet({ open, initialValue, label, onSubmit, onCancel }: NumericEntrySheetProps) {
   const [value, setValue] = useState(String(initialValue));
+  // True until the first keypress after opening: lets that first press
+  // replace the prefilled value instead of appending to it, so the user can
+  // just start typing the new number without deleting the old one first.
+  const [fresh, setFresh] = useState(true);
 
   // The sheet stays mounted (rendering null) while closed so it can animate
   // back open; without this, reopening it for a different set or a changed
   // weight would keep showing whatever was last typed instead of the
   // current value.
   useEffect(() => {
-    if (open) setValue(String(initialValue));
+    if (open) {
+      setValue(String(initialValue));
+      setFresh(true);
+    }
   }, [open, initialValue]);
 
   if (!open) return null;
 
   function press(digit: string) {
     if (digit === 'back') {
-      setValue((v) => v.slice(0, -1));
+      setValue((v) => (fresh ? '' : v.slice(0, -1)));
+      setFresh(false);
       return;
     }
-    setValue((v) => (v === '0' ? digit : v + digit));
+    setValue((v) => (fresh ? digit : v === '0' ? digit : v + digit));
+    setFresh(false);
   }
 
   return (

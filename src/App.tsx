@@ -20,6 +20,7 @@ function App() {
   const onboardingComplete = useAppStore((s) => s.settings.onboardingComplete);
   const restTimerEnabled = useAppStore((s) => s.settings.restTimerEnabled);
   const notificationsEnabled = useAppStore((s) => s.settings.notificationsEnabled);
+  const soundEnabled = useAppStore((s) => s.settings.soundEnabled);
   const init = useAppStore((s) => s.init);
   const timerVisible = useTimerStore((s) => s.endsAt != null) && restTimerEnabled;
 
@@ -28,7 +29,7 @@ function App() {
     resumeTimerFromStorage();
   }, [init]);
 
-  useTimerEngine();
+  useTimerEngine(soundEnabled);
 
   if (!initialized) {
     return <div className="flex min-h-screen items-center justify-center bg-iron-950 text-chalk-500">Loading…</div>;

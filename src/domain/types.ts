@@ -42,6 +42,10 @@ export interface ExerciseState {
   currentWeight: number; // the weight/value prescribed for the next session
   consecutiveFailures: number; // failed attempts at currentWeight
   updatedAt: number;
+  // The warmup set weights actually used last session, in set order. Carried
+  // forward as the default next time instead of always recomputing the
+  // formula recommendation. Null until a session with warmup sets completes.
+  lastWarmupWeights: number[] | null;
 }
 
 export interface SetLog {

@@ -12,7 +12,7 @@ import type {
   WorkoutType,
 } from '../domain/types';
 import { buildCoreExercises, CORE_EXERCISE_IDS, nextWorkoutType, WORKOUT_TEMPLATES, warmupFloor, type ExperienceLevel } from '../domain/program';
-import { applyProgression, exerciseSucceeded, recomputeExerciseStates } from '../domain/progression';
+import { applyProgression, exerciseSucceeded, failedWorkSets, recomputeExerciseStates, warmupWeightsFromLog, type FailedSetInfo } from '../domain/progression';
 import { generateWarmupSets } from '../domain/warmup';
 import { allTimeBest } from '../domain/prs';
 import { convertAndRoundWeight, STANDARD_BAR_WEIGHT, STANDARD_PLATES } from '../domain/units';
@@ -40,6 +40,10 @@ interface AppState {
   currentWorkout: Workout | null;
   lastCompletionSummary: CompletionSummaryItem[] | null;
   lastTimerTrigger: { exerciseId: string; setIndex: number } | null;
+  // The exercise's most recent prior attempt, when it failed — surfaced as a
+  // dismissable heads-up on the workout screen. Absent/empty means either no
+  // prior attempt or the last one succeeded.
+  lastFailureByExercise: Record<string, FailedSetInfo[]>;
 
   init: () => Promise<void>;
   completeOnboarding: (experience: ExperienceLevel, unit: Unit, weightOverrides?: Record<string, number>) => Promise<void>;
@@ -53,7 +57,7 @@ interface AppState {
   setExerciseNote: (exerciseId: string, note: string) => void;
   setBodyweight: (bodyweight: number | null) => void;
   setWorkoutNote: (note: string | null) => void;
-  addExerciseToSession: (exerciseId: string) => void;
+  addExerciseToSession: (exerciseId: string) => Promise<void>;
   setExercisePrescribedWeight: (exerciseId: string, weight: number) => void;
   setSetWeight: (exerciseId: string, setIndex: number, weight: number) => void;
   finishWorkout: () => Promise<string>;
@@ -91,22 +95,41 @@ function getExerciseStateOrDefault(
   exercise: Exercise,
   states: Record<string, ExerciseState>,
 ): ExerciseState {
-  return states[exerciseId] ?? { exerciseId, currentWeight: exercise.startingWeight, consecutiveFailures: 0, updatedAt: 0 };
+  return (
+    states[exerciseId] ?? {
+      exerciseId,
+      currentWeight: exercise.startingWeight,
+      consecutiveFailures: 0,
+      updatedAt: 0,
+      lastWarmupWeights: null,
+    }
+  );
 }
 
-function buildSetsForExercise(exercise: Exercise, prescribedWeight: number, settings: Settings): SetLog[] {
+function buildSetsForExercise(
+  exercise: Exercise,
+  prescribedWeight: number,
+  settings: Settings,
+  rememberedWarmupWeights: number[] | null,
+): SetLog[] {
   const sets: SetLog[] = [];
   let index = 0;
 
   if (settings.showWarmupSets && exercise.kind === 'barbell' && exercise.barWeight != null) {
     const floor = warmupFloor(exercise.id, settings.unit);
     const warmups = generateWarmupSets(prescribedWeight, exercise.barWeight, floor, settings.availablePlates);
-    for (const w of warmups) {
+    // Reuse last session's actual warmup weights when the ramp shape still
+    // matches (same set count); otherwise fall back to the fresh formula
+    // recommendation — see domain/warmup.ts section 7.
+    const remembered =
+      rememberedWarmupWeights != null && rememberedWarmupWeights.length === warmups.length ? rememberedWarmupWeights : null;
+    for (let i = 0; i < warmups.length; i++) {
+      const w = warmups[i];
       sets.push({
         setIndex: index++,
         targetReps: w.targetReps,
         completedReps: null,
-        weight: w.weight,
+        weight: remembered ? remembered[i] : w.weight,
         isWarmup: true,
         loggedAt: null,
       });
@@ -132,6 +155,16 @@ function restDurationFor(kind: 'warmup' | 'set', succeeded: boolean, settings: S
   return succeeded ? settings.restSeconds : settings.restSecondsAfterFailedSet;
 }
 
+/** `workoutsMostRecentFirst` must already be completed-only, sorted newest first. */
+function lastFailureForExercise(exerciseId: string, workoutsMostRecentFirst: Workout[]): FailedSetInfo[] {
+  for (const w of workoutsMostRecentFirst) {
+    const log = w.exercises.find((e) => e.exerciseId === exerciseId);
+    if (!log) continue;
+    return log.succeeded === false ? failedWorkSets(log) : [];
+  }
+  return [];
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   initialized: false,
   settings: repo.DEFAULT_SETTINGS,
@@ -140,6 +173,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   currentWorkout: null,
   lastCompletionSummary: null,
   lastTimerTrigger: null,
+  lastFailureByExercise: {},
 
   init: async () => {
     const [settings, exercises, states, currentWorkout] = await Promise.all([
@@ -163,7 +197,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
     const settings: Settings = { ...repo.DEFAULT_SETTINGS, unit, barWeight, availablePlates, onboardingComplete: true };
     const states: Record<string, ExerciseState> = {};
-    for (const e of core) states[e.id] = { exerciseId: e.id, currentWeight: e.startingWeight, consecutiveFailures: 0, updatedAt: now() };
+    for (const e of core)
+      states[e.id] = { exerciseId: e.id, currentWeight: e.startingWeight, consecutiveFailures: 0, updatedAt: now(), lastWarmupWeights: null };
 
     await Promise.all([
       ...core.map((e) => repo.upsertExercise(e)),
@@ -210,6 +245,16 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     const ordered = [...coreExercises, ...customExercises];
 
+    const priorWorkouts = await repo.getAllWorkouts();
+    const completedMostRecentFirst = priorWorkouts
+      .filter((w) => w.completedAt != null)
+      .sort((a, b) => (b.completedAt as number) - (a.completedAt as number));
+    const lastFailureByExercise: Record<string, FailedSetInfo[]> = {};
+    for (const exercise of ordered) {
+      const failures = lastFailureForExercise(exercise.id, completedMostRecentFirst);
+      if (failures.length > 0) lastFailureByExercise[exercise.id] = failures;
+    }
+
     const workout: Workout = {
       id: crypto.randomUUID(),
       type,
@@ -224,7 +269,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           exerciseId: exercise.id,
           order,
           prescribedWeight,
-          sets: buildSetsForExercise(exercise, prescribedWeight, settings),
+          sets: buildSetsForExercise(exercise, prescribedWeight, settings, state.lastWarmupWeights),
           succeeded: null,
           note: null,
         };
@@ -232,7 +277,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     };
 
     await repo.saveWorkout(workout);
-    set({ currentWorkout: workout, lastCompletionSummary: null });
+    set({ currentWorkout: workout, lastCompletionSummary: null, lastFailureByExercise });
   },
 
   tapSetCircle: (exerciseId, setIndex) => {
@@ -356,7 +401,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     void repo.saveWorkout(nextWorkout);
   },
 
-  addExerciseToSession: (exerciseId) => {
+  addExerciseToSession: async (exerciseId) => {
     const workout = get().currentWorkout;
     const { exercises, exerciseStates, settings } = get();
     if (!workout) return;
@@ -374,7 +419,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           exerciseId,
           order: workout.exercises.length,
           prescribedWeight,
-          sets: buildSetsForExercise(exercise, prescribedWeight, settings),
+          sets: buildSetsForExercise(exercise, prescribedWeight, settings, state.lastWarmupWeights),
           succeeded: null,
           note: null,
         },
@@ -382,6 +427,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     };
     set({ currentWorkout: nextWorkout });
     void repo.saveWorkout(nextWorkout);
+
+    const priorWorkouts = await repo.getAllWorkouts();
+    const completedMostRecentFirst = priorWorkouts
+      .filter((w) => w.completedAt != null)
+      .sort((a, b) => (b.completedAt as number) - (a.completedAt as number));
+    const failures = lastFailureForExercise(exerciseId, completedMostRecentFirst);
+    if (failures.length > 0) {
+      set((s) => ({ lastFailureByExercise: { ...s.lastFailureByExercise, [exerciseId]: failures } }));
+    }
   },
 
   setExercisePrescribedWeight: (exerciseId, weight) => {
@@ -466,7 +520,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       const succeeded = exerciseSucceeded(log);
       const priorState = getExerciseStateOrDefault(exercise.id, exercise, exerciseStates);
       const result = applyProgression(exercise, priorState, succeeded, settings.availablePlates, completedAt);
-      nextStates[exercise.id] = result.state;
+      nextStates[exercise.id] = {
+        ...result.state,
+        lastWarmupWeights: warmupWeightsFromLog(log, priorState.lastWarmupWeights),
+      };
 
       if (result.deload) {
         void repo.recordDeloadEvent({
@@ -499,7 +556,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     await repo.saveWorkout(finishedWorkout);
     await Promise.all(Object.values(nextStates).map((s) => repo.upsertExerciseState(s)));
 
-    set({ currentWorkout: null, exerciseStates: nextStates, lastCompletionSummary: summary, lastTimerTrigger: null });
+    set({
+      currentWorkout: null,
+      exerciseStates: nextStates,
+      lastCompletionSummary: summary,
+      lastTimerTrigger: null,
+      lastFailureByExercise: {},
+    });
     useTimerStore.getState().skip();
     return workout.id;
   },
@@ -508,7 +571,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const workout = get().currentWorkout;
     if (!workout) return;
     await repo.deleteWorkout(workout.id);
-    set({ currentWorkout: null, lastTimerTrigger: null });
+    set({ currentWorkout: null, lastTimerTrigger: null, lastFailureByExercise: {} });
     useTimerStore.getState().skip();
   },
 
@@ -560,11 +623,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       assignment: input.assignment,
       order: sameWorkoutCount,
     };
+    const initialState: ExerciseState = {
+      exerciseId: exercise.id,
+      currentWeight: exercise.startingWeight,
+      consecutiveFailures: 0,
+      updatedAt: now(),
+      lastWarmupWeights: null,
+    };
     await repo.upsertExercise(exercise);
-    await repo.upsertExerciseState({ exerciseId: exercise.id, currentWeight: exercise.startingWeight, consecutiveFailures: 0, updatedAt: now() });
+    await repo.upsertExerciseState(initialState);
     set((state) => ({
       exercises: [...state.exercises, exercise],
-      exerciseStates: { ...state.exerciseStates, [exercise.id]: { exerciseId: exercise.id, currentWeight: exercise.startingWeight, consecutiveFailures: 0, updatedAt: now() } },
+      exerciseStates: { ...state.exerciseStates, [exercise.id]: initialState },
     }));
     return exercise;
   },
@@ -592,7 +662,13 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setExerciseCurrentWeight: async (exerciseId, weight) => {
     const priorState = get().exerciseStates[exerciseId];
-    const nextState: ExerciseState = { exerciseId, currentWeight: weight, consecutiveFailures: priorState?.consecutiveFailures ?? 0, updatedAt: now() };
+    const nextState: ExerciseState = {
+      exerciseId,
+      currentWeight: weight,
+      consecutiveFailures: priorState?.consecutiveFailures ?? 0,
+      updatedAt: now(),
+      lastWarmupWeights: priorState?.lastWarmupWeights ?? null,
+    };
     await repo.upsertExerciseState(nextState);
     set((state) => ({ exerciseStates: { ...state.exerciseStates, [exerciseId]: nextState } }));
   },
