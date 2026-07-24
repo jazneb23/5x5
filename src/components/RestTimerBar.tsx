@@ -71,10 +71,10 @@ export function RestTimerBar({ restTimerEnabled, notificationsEnabled }: RestTim
 
   return (
     <div
-      className={`fixed inset-x-0 bottom-16 z-20 mx-auto flex h-[72px] max-w-app items-center justify-between gap-2 border-t border-iron-700 px-3 transition-colors duration-500 ${
+      className={`fixed inset-x-0 z-20 mx-auto flex max-w-app items-center justify-between gap-2 border-t border-iron-700 px-3 transition-colors duration-500 ${
         showGo ? 'bg-signal-dim' : 'bg-iron-900'
       }`}
-      style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      style={{ bottom: 'var(--nav-total-height)', height: 'var(--timer-bar-height)' }}
     >
       <div ref={liveRegionRef} aria-live="polite" className="sr-only" />
 

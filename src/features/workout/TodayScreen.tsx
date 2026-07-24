@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Link, useNavigate } from 'react-router-dom';
 import * as repo from '../../data/repository';
@@ -81,17 +82,18 @@ export function TodayScreen() {
           </p>
           <p className="mb-4 font-display text-display-md text-signal">{currentWorkout ? currentWorkout.type : nextType}</p>
 
-          <div className="divide-y divide-iron-800">
-            {(currentWorkout ? currentWorkout.exercises : allNext).map((item) => {
+          <div className="grid grid-cols-[1fr_auto_auto] items-center gap-x-3">
+            {(currentWorkout ? currentWorkout.exercises : allNext).map((item, index) => {
               const exerciseId = 'exerciseId' in item ? item.exerciseId : item.id;
               const exercise = exercises.find((e) => e.id === exerciseId);
               if (!exercise) return null;
               const weight =
                 'prescribedWeight' in item ? item.prescribedWeight : exerciseStates[exercise.id]?.currentWeight ?? exercise.startingWeight;
+              const borderClass = index > 0 ? 'border-t border-iron-800' : '';
               return (
-                <div key={exerciseId} className="flex items-center justify-between py-3">
-                  <span className="text-body text-chalk-100">{exercise.name}</span>
-                  <div className="flex items-center gap-3">
+                <Fragment key={exerciseId}>
+                  <span className={`py-3 text-body text-chalk-100 ${borderClass}`}>{exercise.name}</span>
+                  <div className={`flex items-center justify-end py-3 ${borderClass}`}>
                     {exercise.kind === 'barbell' && exercise.barWeight != null && (
                       <PlateStrip
                         targetWeight={weight}
@@ -101,12 +103,12 @@ export function TodayScreen() {
                         size="sm"
                       />
                     )}
-                    <span className="font-display text-weight-lg text-chalk-100">
-                      {weight}
-                      <span className="ml-1 text-label text-chalk-500">{settings.unit.toUpperCase()}</span>
-                    </span>
                   </div>
-                </div>
+                  <span className={`py-3 text-right font-display text-weight-lg text-chalk-100 ${borderClass}`}>
+                    {weight}
+                    <span className="ml-1 text-label text-chalk-500">{settings.unit.toUpperCase()}</span>
+                  </span>
+                </Fragment>
               );
             })}
           </div>

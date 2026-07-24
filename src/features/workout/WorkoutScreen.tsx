@@ -205,7 +205,7 @@ export function WorkoutScreen() {
                     {expandedWarmup[log.exerciseId] ? '▾' : '▸'} Warm up ({warmups.length} sets)
                   </button>
                   {expandedWarmup[log.exerciseId] && (
-                    <div className="mt-3 flex flex-wrap gap-3">
+                    <div className="mt-3 grid gap-1" style={{ gridTemplateColumns: `repeat(${warmups.length}, minmax(0, 1fr))` }}>
                       {warmups.map((s) => (
                         <div key={s.setIndex} className="flex flex-col items-center gap-2">
                           <SetCircle
@@ -226,17 +226,18 @@ export function WorkoutScreen() {
 
               <div className="my-4 border-t border-iron-800" />
 
-              <div className="flex flex-wrap justify-center gap-3">
+              <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${workSets.length}, minmax(0, 1fr))` }}>
                 {workSets.map((s) => (
-                  <SetCircle
-                    key={s.setIndex}
-                    set={s}
-                    index={workSets.indexOf(s)}
-                    onTap={() => tapSetCircle(log.exerciseId, s.setIndex)}
-                    onLongPress={(current) =>
-                      setKeypad({ exerciseId: log.exerciseId, setIndex: s.setIndex, targetReps: s.targetReps, value: current })
-                    }
-                  />
+                  <div key={s.setIndex} className="flex justify-center">
+                    <SetCircle
+                      set={s}
+                      index={workSets.indexOf(s)}
+                      onTap={() => tapSetCircle(log.exerciseId, s.setIndex)}
+                      onLongPress={(current) =>
+                        setKeypad({ exerciseId: log.exerciseId, setIndex: s.setIndex, targetReps: s.targetReps, value: current })
+                      }
+                    />
+                  </div>
                 ))}
               </div>
 

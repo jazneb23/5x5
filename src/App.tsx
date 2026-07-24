@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { useAppStore } from './state/useAppStore';
-import { useTimerEngine, resumeTimerFromStorage } from './state/useTimer';
+import { useTimerEngine, useTimerStore, resumeTimerFromStorage } from './state/useTimer';
 import { BottomNav } from './components/BottomNav';
 import { RestTimerBar } from './components/RestTimerBar';
 import { Onboarding } from './features/onboarding/Onboarding';
@@ -21,6 +21,7 @@ function App() {
   const restTimerEnabled = useAppStore((s) => s.settings.restTimerEnabled);
   const notificationsEnabled = useAppStore((s) => s.settings.notificationsEnabled);
   const init = useAppStore((s) => s.init);
+  const timerVisible = useTimerStore((s) => s.endsAt != null) && restTimerEnabled;
 
   useEffect(() => {
     void init();
@@ -39,7 +40,13 @@ function App() {
 
   return (
     <HashRouter>
-      <div className="min-h-screen bg-iron-950 pb-32">
+      <div
+        className="min-h-screen bg-iron-950"
+        style={{
+          paddingTop: 'env(safe-area-inset-top)',
+          paddingBottom: timerVisible ? 'calc(var(--nav-total-height) + var(--timer-bar-height))' : 'var(--nav-total-height)',
+        }}
+      >
         <Routes>
           <Route path="/" element={<TodayScreen />} />
           <Route path="/workout" element={<WorkoutScreen />} />

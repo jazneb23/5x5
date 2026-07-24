@@ -11,8 +11,8 @@ const TABS = [
 export function BottomNav() {
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-30 mx-auto flex h-16 max-w-app border-t border-iron-700 bg-iron-950"
-      style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      className="fixed inset-x-0 bottom-0 z-30 mx-auto flex max-w-app border-t border-iron-700 bg-iron-950"
+      style={{ height: 'var(--nav-total-height)', paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
       {TABS.map(({ to, label, icon: Icon, end }) => (
         <NavLink

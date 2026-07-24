@@ -36,4 +36,11 @@
   --radius-md: 8px;
   --radius-lg: 12px;
   --radius-pill: 999px;
+
+  /* Fixed footer stack. The bottom nav is the only element that actually
+     touches the physical bottom edge, so it alone carries the safe-area
+     inset; the timer bar and page content padding are computed from it. */
+  --nav-height: 64px;
+  --nav-total-height: calc(var(--nav-height) + env(safe-area-inset-bottom));
+  --timer-bar-height: 72px;
 }
