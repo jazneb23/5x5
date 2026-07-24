@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from './Button';
 
 interface NumericEntrySheetProps {
@@ -11,6 +11,14 @@ interface NumericEntrySheetProps {
 
 export function NumericEntrySheet({ open, initialValue, label, onSubmit, onCancel }: NumericEntrySheetProps) {
   const [value, setValue] = useState(String(initialValue));
+
+  // The sheet stays mounted (rendering null) while closed so it can animate
+  // back open; without this, reopening it for a different set or a changed
+  // weight would keep showing whatever was last typed instead of the
+  // current value.
+  useEffect(() => {
+    if (open) setValue(String(initialValue));
+  }, [open, initialValue]);
 
   if (!open) return null;
 
