@@ -1,0 +1,39 @@
+:root {
+  color-scheme: dark;
+
+  /* Ground. Powder-coated rack steel. */
+  --iron-950: #0e1216; /* app background */
+  --iron-900: #171d23; /* card and sheet surfaces */
+  --iron-800: #212932; /* raised surfaces, inactive controls */
+  --iron-700: #2e3945; /* hairlines, dividers, circle outlines */
+  --iron-600: #46545f; /* disabled foreground */
+
+  /* Chalk. */
+  --chalk-100: #f1efe9; /* primary text, completed set fill */
+  --chalk-300: #c4c8cc; /* secondary text */
+  --chalk-500: #8894a0; /* tertiary text, labels, units */
+
+  /* Signal. Drawn from IWF plate colors. */
+  --signal: #2c7fd4; /* 20 kg blue. primary action, timer ring. */
+  --signal-dim: #1b5fa5;
+  --fail: #c0392b; /* 25 kg red. missed reps, deloads. */
+  --record: #2e8b57; /* 10 kg green. personal records only. */
+
+  /* Plate fills, for the plate strip. */
+  --plate-45: #2c7fd4;
+  --plate-35: #f2c230;
+  --plate-25: #c0392b;
+  --plate-10: #2e8b57;
+  --plate-5: #f1efe9;
+  --plate-2p5: #8894a0;
+  --plate-frac: #46545f;
+
+  --font-display: 'Archivo Variable', system-ui, sans-serif;
+  --font-body: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+}
