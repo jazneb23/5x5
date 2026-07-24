@@ -1,4 +1,4 @@
-import type { DeloadEvent, Exercise, ExerciseLog, ExerciseState, Workout } from './types';
+import type { DeloadEvent, Exercise, ExerciseLog, ExerciseState, SetLog, Workout } from './types';
 
 /**
  * minimumStep = 2 * min(availablePlates); every loadable weight is
@@ -37,6 +37,37 @@ export function exerciseSucceeded(log: ExerciseLog): boolean {
   return workSets.every((s) => setSucceeded(s.targetReps, s.completedReps));
 }
 
+export interface FailedSetInfo {
+  /** 0-based rank among this log's work sets (not the raw SetLog.setIndex, which also counts warmups). */
+  setIndex: number;
+  completedReps: number;
+  targetReps: number;
+}
+
+/** Work sets that missed target reps, in set order. Warmup sets never count. */
+export function failedWorkSets(log: ExerciseLog): FailedSetInfo[] {
+  const workSets = log.sets.filter((s) => !s.isWarmup);
+  return workSets
+    .map((s, workSetIndex) => ({ s, workSetIndex }))
+    .filter(
+      (entry): entry is { s: SetLog & { completedReps: number }; workSetIndex: number } =>
+        entry.s.completedReps != null && entry.s.completedReps < entry.s.targetReps,
+    )
+    .map(({ s, workSetIndex }) => ({ setIndex: workSetIndex, completedReps: s.completedReps, targetReps: s.targetReps }));
+}
+
+/**
+ * The warmup weights actually used in this log, in set order, for carrying
+ * forward as next session's default (section 7: warmups never affect
+ * progression, but remembering them is a pure UX convenience). Falls back to
+ * whatever was remembered before when this log has no warmup sets at all —
+ * e.g. `showWarmupSets` was off for that session.
+ */
+export function warmupWeightsFromLog(log: ExerciseLog, priorWarmupWeights: number[] | null): number[] | null {
+  const weights = log.sets.filter((s) => s.isWarmup).map((s) => s.weight);
+  return weights.length > 0 ? weights : priorWarmupWeights;
+}
+
 export interface DeloadResult {
   fromWeight: number;
   toWeight: number;
@@ -70,6 +101,7 @@ export function applyProgression(
         currentWeight: priorState.currentWeight + exercise.increment,
         consecutiveFailures: 0,
         updatedAt: now,
+        lastWarmupWeights: priorState.lastWarmupWeights,
       },
       deload: null,
     };
@@ -87,6 +119,7 @@ export function applyProgression(
         currentWeight: toWeight,
         consecutiveFailures: 0,
         updatedAt: now,
+        lastWarmupWeights: priorState.lastWarmupWeights,
       },
       deload: { fromWeight: priorState.currentWeight, toWeight },
     };
@@ -98,6 +131,7 @@ export function applyProgression(
       currentWeight: priorState.currentWeight,
       consecutiveFailures,
       updatedAt: now,
+      lastWarmupWeights: priorState.lastWarmupWeights,
     },
     deload: null,
   };
@@ -129,6 +163,7 @@ export function recomputeExerciseStates(
       currentWeight: exercise.startingWeight,
       consecutiveFailures: 0,
       updatedAt: 0,
+      lastWarmupWeights: null,
     };
   }
 
@@ -142,10 +177,14 @@ export function recomputeExerciseStates(
         currentWeight: exercise.startingWeight,
         consecutiveFailures: 0,
         updatedAt: 0,
+        lastWarmupWeights: null,
       };
       const succeeded = exerciseSucceeded(log);
       const result = applyProgression(exercise, priorState, succeeded, availablePlates, workout.completedAt);
-      states[exercise.id] = result.state;
+      states[exercise.id] = {
+        ...result.state,
+        lastWarmupWeights: warmupWeightsFromLog(log, priorState.lastWarmupWeights),
+      };
       if (result.deload) {
         deloadEvents.push({
           exerciseId: exercise.id,

@@ -38,6 +38,15 @@ export function vibrateComplete(): void {
   if ('vibrate' in navigator) navigator.vibrate([200, 100, 200]);
 }
 
+/** Spoken countdown callouts ("30 seconds left"), section 8.4 sound mechanism. */
+export function speak(text: string): void {
+  if (!('speechSynthesis' in window)) return;
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.rate = 1;
+  utterance.volume = 1;
+  window.speechSynthesis.speak(utterance);
+}
+
 export async function requestNotificationPermission(): Promise<NotificationPermission> {
   if (!('Notification' in window)) return 'denied';
   if (Notification.permission !== 'default') return Notification.permission;

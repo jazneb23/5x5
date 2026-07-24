@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { create } from 'zustand';
-import { cancelScheduledNotification, playCompletionTone, vibrateComplete } from './timerEffects';
+import { cancelScheduledNotification, playCompletionTone, speak, vibrateComplete } from './timerEffects';
 
 // Section 8.3: never accumulate setInterval ticks. Store an absolute endsAt
 // and recompute remaining time from Date.now() on every tick and on every
@@ -108,10 +108,15 @@ export function resumeTimerFromStorage() {
  * Mount once at the app root. Drives the tick loop on a 250ms interval (a
  * pure repaint trigger, never an accumulator — see tick() above), recomputes
  * immediately on visibilitychange/pageshow, and fires the sound + vibration
- * the instant the timer crosses zero.
+ * the instant the timer crosses zero. Also speaks "30 seconds left" and "10
+ * seconds left" callouts partway through, so rest can be timed without
+ * looking at the screen.
  */
-export function useTimerEngine(): void {
+export function useTimerEngine(soundEnabled: boolean): void {
   const wasCompleteRef = useRef(false);
+  const announced30Ref = useRef(false);
+  const announced10Ref = useRef(false);
+  const lastEndsAtRef = useRef<number | null>(null);
 
   useEffect(() => {
     const interval = setInterval(() => useTimerStore.getState().tick(), 250);
@@ -128,6 +133,12 @@ export function useTimerEngine(): void {
   useEffect(
     () =>
       useTimerStore.subscribe((state) => {
+        if (state.endsAt !== lastEndsAtRef.current) {
+          lastEndsAtRef.current = state.endsAt;
+          announced30Ref.current = false;
+          announced10Ref.current = false;
+        }
+
         if (state.isComplete && !wasCompleteRef.current) {
           wasCompleteRef.current = true;
           playCompletionTone();
@@ -135,8 +146,20 @@ export function useTimerEngine(): void {
         } else if (!state.isComplete) {
           wasCompleteRef.current = false;
         }
+
+        if (soundEnabled && !state.isComplete && state.kind != null) {
+          if (state.remainingMs <= 30_000 && state.remainingMs > 10_000 && !announced30Ref.current) {
+            announced30Ref.current = true;
+            speak('30 seconds left');
+          }
+          if (state.remainingMs <= 10_000 && state.remainingMs > 0 && !announced10Ref.current) {
+            announced10Ref.current = true;
+            speak('10 seconds left');
+          }
+        }
+
         if (state.endsAt == null) cancelScheduledNotification();
       }),
-    [],
+    [soundEnabled],
   );
 }

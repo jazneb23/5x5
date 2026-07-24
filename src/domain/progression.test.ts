@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { applyProgression, exerciseSucceeded, minimumStep, recomputeExerciseStates, roundDownToLoadable, setSucceeded } from './progression';
+import {
+  applyProgression,
+  exerciseSucceeded,
+  failedWorkSets,
+  minimumStep,
+  recomputeExerciseStates,
+  roundDownToLoadable,
+  setSucceeded,
+  warmupWeightsFromLog,
+} from './progression';
 import type { Exercise, ExerciseLog, ExerciseState, Workout } from './types';
 
 const LB_PLATES = [45, 35, 25, 10, 5, 2.5];
@@ -27,7 +36,7 @@ function exercise(overrides: Partial<Exercise> = {}): Exercise {
 }
 
 function state(overrides: Partial<ExerciseState> = {}): ExerciseState {
-  return { exerciseId: 'ex', currentWeight: 185, consecutiveFailures: 0, updatedAt: 0, ...overrides };
+  return { exerciseId: 'ex', currentWeight: 185, consecutiveFailures: 0, updatedAt: 0, lastWarmupWeights: null, ...overrides };
 }
 
 describe('minimumStep', () => {
@@ -271,5 +280,95 @@ describe('recomputeExerciseStates', () => {
     const other = workoutFor('w1', 100, 'bench', 135, true);
     const { states } = recomputeExerciseStates([ex], [other], LB_PLATES);
     expect(states.squat.currentWeight).toBe(135);
+  });
+
+  it('carries forward the most recent warmup weights across replayed sessions', () => {
+    const ex = exercise({ id: 'bench', startingWeight: 135 });
+    const w1 = workoutFor('w1', 100, 'bench', 135, true);
+    w1.exercises[0].sets = [
+      { setIndex: 0, targetReps: 5, completedReps: 5, weight: 45, isWarmup: true, loggedAt: 100 },
+      { setIndex: 1, targetReps: 5, completedReps: 5, weight: 95, isWarmup: true, loggedAt: 100 },
+      ...w1.exercises[0].sets,
+    ];
+    const w2 = workoutFor('w2', 200, 'bench', 140, true); // no warmup sets logged this session
+    const { states } = recomputeExerciseStates([ex], [w1, w2], LB_PLATES);
+    expect(states.bench.lastWarmupWeights).toEqual([45, 95]);
+  });
+});
+
+describe('failedWorkSets', () => {
+  function log(sets: ExerciseLog['sets']): ExerciseLog {
+    return { exerciseId: 'ex', order: 0, prescribedWeight: 185, sets, succeeded: null, note: null };
+  }
+
+  it('lists work sets that missed target reps, with the reps achieved', () => {
+    const sets = [
+      { setIndex: 0, targetReps: 5, completedReps: 5, weight: 185, isWarmup: false, loggedAt: 1 },
+      { setIndex: 1, targetReps: 5, completedReps: 5, weight: 185, isWarmup: false, loggedAt: 1 },
+      { setIndex: 2, targetReps: 5, completedReps: 5, weight: 185, isWarmup: false, loggedAt: 1 },
+      { setIndex: 3, targetReps: 5, completedReps: 3, weight: 185, isWarmup: false, loggedAt: 1 },
+      { setIndex: 4, targetReps: 5, completedReps: 2, weight: 185, isWarmup: false, loggedAt: 1 },
+    ];
+    expect(failedWorkSets(log(sets))).toEqual([
+      { setIndex: 3, completedReps: 3, targetReps: 5 },
+      { setIndex: 4, completedReps: 2, targetReps: 5 },
+    ]);
+  });
+
+  it('ignores warmup sets and unlogged sets', () => {
+    const sets = [
+      { setIndex: 0, targetReps: 5, completedReps: 0, weight: 45, isWarmup: true, loggedAt: 1 },
+      { setIndex: 1, targetReps: 5, completedReps: null, weight: 185, isWarmup: false, loggedAt: null },
+      { setIndex: 2, targetReps: 5, completedReps: 5, weight: 185, isWarmup: false, loggedAt: 1 },
+    ];
+    expect(failedWorkSets(log(sets))).toEqual([]);
+  });
+
+  it('returns an empty list when every work set hit target', () => {
+    const sets = Array.from({ length: 5 }, (_, i) => ({
+      setIndex: i,
+      targetReps: 5,
+      completedReps: 5,
+      weight: 185,
+      isWarmup: false,
+      loggedAt: 1,
+    }));
+    expect(failedWorkSets(log(sets))).toEqual([]);
+  });
+
+  it('numbers sets by rank among work sets, not by raw SetLog.setIndex, so warmups do not shift the count', () => {
+    const sets = [
+      { setIndex: 0, targetReps: 5, completedReps: 5, weight: 45, isWarmup: true, loggedAt: 1 },
+      { setIndex: 1, targetReps: 5, completedReps: 5, weight: 95, isWarmup: true, loggedAt: 1 },
+      { setIndex: 2, targetReps: 5, completedReps: 5, weight: 185, isWarmup: false, loggedAt: 1 }, // work set 0
+      { setIndex: 3, targetReps: 5, completedReps: 5, weight: 185, isWarmup: false, loggedAt: 1 }, // work set 1
+      { setIndex: 4, targetReps: 5, completedReps: 3, weight: 185, isWarmup: false, loggedAt: 1 }, // work set 2 - failed
+    ];
+    expect(failedWorkSets(log(sets))).toEqual([{ setIndex: 2, completedReps: 3, targetReps: 5 }]);
+  });
+});
+
+describe('warmupWeightsFromLog', () => {
+  function log(sets: ExerciseLog['sets']): ExerciseLog {
+    return { exerciseId: 'ex', order: 0, prescribedWeight: 185, sets, succeeded: null, note: null };
+  }
+
+  it('extracts warmup set weights in order', () => {
+    const sets = [
+      { setIndex: 0, targetReps: 5, completedReps: 5, weight: 45, isWarmup: true, loggedAt: 1 },
+      { setIndex: 1, targetReps: 5, completedReps: 5, weight: 100, isWarmup: true, loggedAt: 1 },
+      { setIndex: 2, targetReps: 5, completedReps: 5, weight: 185, isWarmup: false, loggedAt: 1 },
+    ];
+    expect(warmupWeightsFromLog(log(sets), null)).toEqual([45, 100]);
+  });
+
+  it('falls back to the prior remembered weights when the log has no warmup sets', () => {
+    const sets = [{ setIndex: 0, targetReps: 5, completedReps: 5, weight: 185, isWarmup: false, loggedAt: 1 }];
+    expect(warmupWeightsFromLog(log(sets), [45, 95])).toEqual([45, 95]);
+  });
+
+  it('returns null when there is nothing logged and nothing remembered', () => {
+    const sets = [{ setIndex: 0, targetReps: 5, completedReps: 5, weight: 185, isWarmup: false, loggedAt: 1 }];
+    expect(warmupWeightsFromLog(log(sets), null)).toBeNull();
   });
 });
