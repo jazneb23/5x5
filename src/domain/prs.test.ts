@@ -17,6 +17,7 @@ function completedWorkout(id: string, completedAt: number, weight: number, succe
         prescribedWeight: weight,
         succeeded,
         note: null,
+        skipped: false,
         sets: Array.from({ length: 5 }, (_, i) => ({
           setIndex: i,
           targetReps: reps,

@@ -53,6 +53,19 @@ export function WorkoutCompleteScreen() {
         {summary.map((item) => {
           const log = workout.exercises.find((e) => e.exerciseId === item.exerciseId);
           const workSets = log?.sets.filter((s) => !s.isWarmup) ?? [];
+
+          if (item.skipped) {
+            return (
+              <div key={item.exerciseId}>
+                <div className="flex items-center justify-between">
+                  <span className="text-body-strong text-chalk-100">{item.name}</span>
+                  <span className="text-data text-chalk-500">Skipped</span>
+                </div>
+                {item.skipReason && <p className="mt-0.5 text-data text-chalk-500">{item.skipReason}</p>}
+              </div>
+            );
+          }
+
           return (
             <div key={item.exerciseId}>
               <div className="flex items-center justify-between">

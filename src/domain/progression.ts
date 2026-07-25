@@ -179,6 +179,15 @@ export function recomputeExerciseStates(
         updatedAt: 0,
         lastWarmupWeights: null,
       };
+
+      // A skipped exercise is neither a success nor a failure — it never
+      // reaches applyProgression, so the prior weight and failure count
+      // carry forward exactly as they were.
+      if (log.skipped) {
+        states[exercise.id] = priorState;
+        continue;
+      }
+
       const succeeded = exerciseSucceeded(log);
       const result = applyProgression(exercise, priorState, succeeded, availablePlates, workout.completedAt);
       states[exercise.id] = {

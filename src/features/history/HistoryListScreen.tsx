@@ -59,7 +59,12 @@ export function HistoryListScreen() {
                 </div>
                 <div className="flex gap-1.5">
                   {w.exercises.map((e) => (
-                    <span key={e.exerciseId} className={`h-2.5 w-2.5 rounded-full ${e.succeeded ? 'bg-chalk-100' : 'border border-fail'}`} />
+                    <span
+                      key={e.exerciseId}
+                      className={`h-2.5 w-2.5 rounded-full ${
+                        e.succeeded ? 'bg-chalk-100' : e.succeeded === null ? 'border border-iron-700' : 'border border-fail'
+                      }`}
+                    />
                   ))}
                 </div>
               </Link>

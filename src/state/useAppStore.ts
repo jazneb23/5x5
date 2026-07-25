@@ -30,6 +30,8 @@ interface CompletionSummaryItem {
   attempt: number | null; // consecutive failure attempt number, when unchanged and not deloaded
   failuresBeforeDeload: number;
   isPR: boolean;
+  skipped: boolean;
+  skipReason: string | null;
 }
 
 interface AppState {
@@ -60,6 +62,8 @@ interface AppState {
   addExerciseToSession: (exerciseId: string) => Promise<void>;
   setExercisePrescribedWeight: (exerciseId: string, weight: number) => void;
   setSetWeight: (exerciseId: string, setIndex: number, weight: number) => void;
+  skipExercise: (exerciseId: string, reason: string) => void;
+  unskipExercise: (exerciseId: string) => void;
   finishWorkout: () => Promise<string>;
   discardWorkout: () => Promise<void>;
 
@@ -272,6 +276,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           sets: buildSetsForExercise(exercise, prescribedWeight, settings, state.lastWarmupWeights),
           succeeded: null,
           note: null,
+          skipped: false,
         };
       }),
     };
@@ -422,6 +427,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           sets: buildSetsForExercise(exercise, prescribedWeight, settings, state.lastWarmupWeights),
           succeeded: null,
           note: null,
+          skipped: false,
         },
       ],
     };
@@ -504,6 +510,43 @@ export const useAppStore = create<AppState>((set, get) => ({
     void repo.saveWorkout(nextWorkout);
   },
 
+  skipExercise: (exerciseId, reason) => {
+    const workout = get().currentWorkout;
+    if (!workout) return;
+    const exerciseIndex = workout.exercises.findIndex((e) => e.exerciseId === exerciseId);
+    if (exerciseIndex === -1) return;
+
+    const updatedExercises = workout.exercises.map((log, i) => {
+      if (i !== exerciseIndex) return log;
+      return {
+        ...log,
+        skipped: true,
+        note: reason.trim() || null,
+        // Any partial logging for today doesn't count once skipped.
+        sets: log.sets.map((s) => ({ ...s, completedReps: null, loggedAt: null })),
+      };
+    });
+
+    const nextWorkout = { ...workout, exercises: updatedExercises };
+    set({ currentWorkout: nextWorkout });
+    void repo.saveWorkout(nextWorkout);
+  },
+
+  unskipExercise: (exerciseId) => {
+    const workout = get().currentWorkout;
+    if (!workout) return;
+    const exerciseIndex = workout.exercises.findIndex((e) => e.exerciseId === exerciseId);
+    if (exerciseIndex === -1) return;
+
+    const updatedExercises = workout.exercises.map((log, i) =>
+      i === exerciseIndex ? { ...log, skipped: false, note: null } : log,
+    );
+
+    const nextWorkout = { ...workout, exercises: updatedExercises };
+    set({ currentWorkout: nextWorkout });
+    void repo.saveWorkout(nextWorkout);
+  },
+
   finishWorkout: async () => {
     const workout = get().currentWorkout;
     if (!workout) throw new Error('No workout in progress');
@@ -517,8 +560,29 @@ export const useAppStore = create<AppState>((set, get) => ({
     const finishedExercises = workout.exercises.map((log) => {
       const exercise = exercises.find((e) => e.id === log.exerciseId);
       if (!exercise) return log;
-      const succeeded = exerciseSucceeded(log);
       const priorState = getExerciseStateOrDefault(exercise.id, exercise, exerciseStates);
+
+      // A skipped exercise is neither a success nor a failure: it never
+      // reaches applyProgression, and next session's weight is untouched.
+      if (log.skipped) {
+        summary.push({
+          exerciseId: exercise.id,
+          name: exercise.name,
+          succeeded: false,
+          weight: log.prescribedWeight,
+          nextWeight: priorState.currentWeight,
+          isDeload: false,
+          isManualOrNone: exercise.progression !== 'linear',
+          attempt: null,
+          failuresBeforeDeload: exercise.failuresBeforeDeload,
+          isPR: false,
+          skipped: true,
+          skipReason: log.note,
+        });
+        return { ...log, succeeded: null };
+      }
+
+      const succeeded = exerciseSucceeded(log);
       const result = applyProgression(exercise, priorState, succeeded, settings.availablePlates, completedAt);
       nextStates[exercise.id] = {
         ...result.state,
@@ -547,6 +611,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         attempt: !succeeded && !result.deload && exercise.progression === 'linear' ? result.state.consecutiveFailures : null,
         failuresBeforeDeload: exercise.failuresBeforeDeload,
         isPR: succeeded && log.prescribedWeight > previousBest,
+        skipped: false,
+        skipReason: null,
       });
 
       return { ...log, succeeded };
@@ -591,7 +657,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   editHistoricalWorkout: async (workout) => {
     const withRecomputedSuccess: Workout = {
       ...workout,
-      exercises: workout.exercises.map((log) => ({ ...log, succeeded: exerciseSucceeded(log) })),
+      exercises: workout.exercises.map((log) => ({ ...log, succeeded: log.skipped ? null : exerciseSucceeded(log) })),
     };
     await repo.saveWorkout(withRecomputedSuccess);
     await get().recomputeProgressionFromHistory();

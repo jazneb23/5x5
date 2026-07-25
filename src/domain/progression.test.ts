@@ -77,7 +77,7 @@ describe('setSucceeded', () => {
 
 describe('exerciseSucceeded', () => {
   function log(sets: ExerciseLog['sets']): ExerciseLog {
-    return { exerciseId: 'ex', order: 0, prescribedWeight: 185, sets, succeeded: null, note: null };
+    return { exerciseId: 'ex', order: 0, prescribedWeight: 185, sets, succeeded: null, note: null, skipped: false };
   }
 
   it('succeeds only when every work set hits target reps', () => {
@@ -237,6 +237,7 @@ describe('recomputeExerciseStates', () => {
           prescribedWeight: weight,
           succeeded: null,
           note: null,
+          skipped: false,
           sets: Array.from({ length: 5 }, (_, i) => ({
             setIndex: i,
             targetReps: 5,
@@ -294,11 +295,38 @@ describe('recomputeExerciseStates', () => {
     const { states } = recomputeExerciseStates([ex], [w1, w2], LB_PLATES);
     expect(states.bench.lastWarmupWeights).toEqual([45, 95]);
   });
+
+  it('a skipped session counts as neither success nor failure: weight and failure count carry forward untouched', () => {
+    const ex = exercise({ id: 'bench', startingWeight: 135, increment: 5, failuresBeforeDeload: 3 });
+    const w1 = workoutFor('w1', 100, 'bench', 135, false); // fail once
+    const w2 = workoutFor('w2', 200, 'bench', 135, false);
+    w2.exercises[0].skipped = true; // would otherwise be a second consecutive failure
+    const w3 = workoutFor('w3', 300, 'bench', 135, true);
+    const { states } = recomputeExerciseStates([ex], [w1, w2, w3], LB_PLATES);
+    // Session 2 skipped: consecutiveFailures stays at 1 from session 1, then
+    // session 3's success adds the increment from the untouched 135, not a
+    // deload-adjacent weight.
+    expect(states.bench.currentWeight).toBe(140);
+    expect(states.bench.consecutiveFailures).toBe(0);
+  });
+
+  it('a skipped session does not disturb remembered warmup weights', () => {
+    const ex = exercise({ id: 'bench', startingWeight: 135 });
+    const w1 = workoutFor('w1', 100, 'bench', 135, true);
+    w1.exercises[0].sets = [
+      { setIndex: 0, targetReps: 5, completedReps: 5, weight: 45, isWarmup: true, loggedAt: 100 },
+      ...w1.exercises[0].sets,
+    ];
+    const w2 = workoutFor('w2', 200, 'bench', 140, true);
+    w2.exercises[0].skipped = true;
+    const { states } = recomputeExerciseStates([ex], [w1, w2], LB_PLATES);
+    expect(states.bench.lastWarmupWeights).toEqual([45]);
+  });
 });
 
 describe('failedWorkSets', () => {
   function log(sets: ExerciseLog['sets']): ExerciseLog {
-    return { exerciseId: 'ex', order: 0, prescribedWeight: 185, sets, succeeded: null, note: null };
+    return { exerciseId: 'ex', order: 0, prescribedWeight: 185, sets, succeeded: null, note: null, skipped: false };
   }
 
   it('lists work sets that missed target reps, with the reps achieved', () => {
@@ -350,7 +378,7 @@ describe('failedWorkSets', () => {
 
 describe('warmupWeightsFromLog', () => {
   function log(sets: ExerciseLog['sets']): ExerciseLog {
-    return { exerciseId: 'ex', order: 0, prescribedWeight: 185, sets, succeeded: null, note: null };
+    return { exerciseId: 'ex', order: 0, prescribedWeight: 185, sets, succeeded: null, note: null, skipped: false };
   }
 
   it('extracts warmup set weights in order', () => {

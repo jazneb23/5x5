@@ -14,6 +14,10 @@ function formatDate(ts: number): string {
   return new Date(ts).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 }
 
+function formatCompactNumber(n: number): string {
+  return new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(n);
+}
+
 export function ProgressScreen() {
   const exercises = useAppStore((s) => s.exercises);
   const exerciseStates = useAppStore((s) => s.exerciseStates);
@@ -114,7 +118,7 @@ export function ProgressScreen() {
         ) : (
           <div style={{ height: 220 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
+              <LineChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid vertical={false} stroke="var(--iron-800)" />
                 <XAxis
                   dataKey="at"
@@ -129,7 +133,8 @@ export function ProgressScreen() {
                   tick={{ fontSize: 12, fill: 'var(--chalk-500)' }}
                   axisLine={false}
                   tickLine={false}
-                  width={40}
+                  width={52}
+                  tickMargin={8}
                   tickCount={4}
                 />
                 <Tooltip
@@ -160,10 +165,18 @@ export function ProgressScreen() {
             <p className="mb-2 mt-8 text-label uppercase tracking-[0.12em] text-chalk-500">Session volume</p>
             <div style={{ height: 160 }}>
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
+                <LineChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid vertical={false} stroke="var(--iron-800)" />
                   <XAxis dataKey="at" tickFormatter={formatAxisDate} tick={{ fontSize: 12, fill: 'var(--chalk-500)' }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 12, fill: 'var(--chalk-500)' }} axisLine={false} tickLine={false} width={40} tickCount={4} />
+                  <YAxis
+                    tickFormatter={formatCompactNumber}
+                    tick={{ fontSize: 12, fill: 'var(--chalk-500)' }}
+                    axisLine={false}
+                    tickLine={false}
+                    width={52}
+                    tickMargin={8}
+                    tickCount={4}
+                  />
                   <Tooltip contentStyle={{ background: 'var(--iron-800)', border: '1px solid var(--iron-700)', borderRadius: 8 }} />
                   <Line type="monotone" dataKey="volume" stroke="var(--signal)" strokeWidth={2} dot={false} />
                 </LineChart>
