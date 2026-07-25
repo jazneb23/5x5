@@ -65,8 +65,13 @@ export interface ExerciseLog {
   order: number;
   prescribedWeight: number;
   sets: SetLog[];
-  succeeded: boolean | null; // computed on session completion
+  succeeded: boolean | null; // computed on session completion; null when skipped
   note: string | null;
+  // Deliberately not attempted this session. Progression treats a skipped
+  // exercise as neither a success nor a failure — the prior weight and
+  // failure count carry forward untouched. The reason, if given, is stored
+  // in `note`.
+  skipped: boolean;
 }
 
 export interface Workout {

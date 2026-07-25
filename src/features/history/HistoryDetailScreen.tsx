@@ -73,22 +73,28 @@ export function HistoryDetailScreen() {
               <div key={log.exerciseId}>
                 <div className="mb-2 flex items-center justify-between">
                   <span className="text-body-strong text-chalk-100">{exercise?.name ?? log.exerciseId}</span>
-                  <span className="font-mono text-data text-chalk-500">{log.prescribedWeight}</span>
+                  {log.skipped ? (
+                    <span className="text-data text-chalk-500">Skipped</span>
+                  ) : (
+                    <span className="font-mono text-data text-chalk-500">{log.prescribedWeight}</span>
+                  )}
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {log.sets
-                    .filter((s) => !s.isWarmup)
-                    .map((s) => (
-                      <input
-                        key={s.setIndex}
-                        type="number"
-                        inputMode="numeric"
-                        value={s.completedReps ?? ''}
-                        onChange={(e) => updateReps(log.exerciseId, s.setIndex, Number(e.target.value))}
-                        className="h-12 w-12 rounded-sm border border-iron-700 bg-transparent text-center font-mono text-data text-chalk-100"
-                      />
-                    ))}
-                </div>
+                {!log.skipped && (
+                  <div className="flex flex-wrap gap-2">
+                    {log.sets
+                      .filter((s) => !s.isWarmup)
+                      .map((s) => (
+                        <input
+                          key={s.setIndex}
+                          type="number"
+                          inputMode="numeric"
+                          value={s.completedReps ?? ''}
+                          onChange={(e) => updateReps(log.exerciseId, s.setIndex, Number(e.target.value))}
+                          className="h-12 w-12 rounded-sm border border-iron-700 bg-transparent text-center font-mono text-data text-chalk-100"
+                        />
+                      ))}
+                  </div>
+                )}
                 {log.note && <p className="mt-2 text-data text-chalk-500">{log.note}</p>}
               </div>
             );

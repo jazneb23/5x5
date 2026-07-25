@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MoreHorizontal, Pencil, X } from 'lucide-react';
+import { MoreHorizontal, X } from 'lucide-react';
 import type { ExerciseKind, ExerciseLog, ProgressionScheme } from '../../domain/types';
 import { useAppStore } from '../../state/useAppStore';
 import { ScreenHeader } from '../../components/ScreenHeader';
@@ -28,7 +28,7 @@ function formatCountdown(ms: number): string {
 }
 
 function isExerciseLogged(log: ExerciseLog): boolean {
-  return log.sets.filter((s) => !s.isWarmup).every((s) => s.completedReps != null);
+  return log.skipped || log.sets.filter((s) => !s.isWarmup).every((s) => s.completedReps != null);
 }
 
 type EntrySheetState =
@@ -61,6 +61,8 @@ export function WorkoutScreen() {
   const addExerciseToSession = useAppStore((s) => s.addExerciseToSession);
   const setExercisePrescribedWeight = useAppStore((s) => s.setExercisePrescribedWeight);
   const setSetWeight = useAppStore((s) => s.setSetWeight);
+  const skipExercise = useAppStore((s) => s.skipExercise);
+  const unskipExercise = useAppStore((s) => s.unskipExercise);
   const discardWorkout = useAppStore((s) => s.discardWorkout);
   const finishWorkout = useAppStore((s) => s.finishWorkout);
   const createExercise = useAppStore((s) => s.createExercise);
@@ -82,6 +84,8 @@ export function WorkoutScreen() {
   const [dismissedFailureNotice, setDismissedFailureNotice] = useState<Record<string, boolean>>({});
   const [warmupBannerEndsAt, setWarmupBannerEndsAt] = useState<Record<string, number>>({});
   const [dismissedWarmupBanner, setDismissedWarmupBanner] = useState<Record<string, boolean>>({});
+  const [skipPromptOpen, setSkipPromptOpen] = useState<Record<string, boolean>>({});
+  const [skipReasonDraft, setSkipReasonDraft] = useState<Record<string, string>>({});
   const [, forceElapsedTick] = useState(0);
 
   useEffect(() => {
@@ -103,15 +107,20 @@ export function WorkoutScreen() {
 
   useWakeLock(Boolean(workout) && settings.keepScreenAwake);
 
-  // A 5-minute warm-up window starts the first time an exercise with warmup
-  // sets becomes active and isn't finished yet. It keeps counting down in
-  // real time even if the user navigates elsewhere and back; it never blocks
-  // logging sets or editing warmup weights.
+  // A 5-minute warm-up window starts only for the exercise that's actually
+  // next up — the first one in the session that isn't fully logged yet — the
+  // moment it becomes active. Browsing ahead to a later, not-yet-reached
+  // exercise while an earlier one is still unfinished must not start its
+  // timer early. Once started, it keeps counting down in real time even if
+  // the user navigates elsewhere and back; it never blocks logging sets or
+  // editing warmup weights.
   useEffect(() => {
     if (!workout) return;
     const activeLog = workout.exercises[activeIndex];
     if (!activeLog) return;
     if (isExerciseLogged(activeLog) || !activeLog.sets.some((s) => s.isWarmup)) return;
+    const currentIndex = workout.exercises.findIndex((log) => !isExerciseLogged(log));
+    if (activeIndex !== currentIndex) return;
     setWarmupBannerEndsAt((prev) =>
       prev[activeLog.exerciseId] != null ? prev : { ...prev, [activeLog.exerciseId]: Date.now() + WARMUP_WINDOW_MS },
     );
@@ -163,7 +172,7 @@ export function WorkoutScreen() {
   const isLastExercise = activeIndex === workout.exercises.length - 1;
   const lastExerciseLog = workout.exercises[workout.exercises.length - 1];
   const workoutFullyLogged = isExerciseLogged(lastExerciseLog);
-  const anySetLogged = workout.exercises.some((log) => log.sets.some((s) => s.completedReps != null));
+  const anySetLogged = workout.exercises.some((log) => log.skipped || log.sets.some((s) => s.completedReps != null));
 
   const availableToAdd = exercises.filter(
     (e) => !e.archived && !workout.exercises.some((log) => log.exerciseId === e.id),
@@ -263,25 +272,46 @@ export function WorkoutScreen() {
               >
                 <span className={logged ? 'text-body text-chalk-100' : 'text-body text-chalk-500'}>{exercise.name}</span>
                 <div className="flex items-center gap-3">
-                  <span className={logged ? 'text-data text-chalk-100' : 'text-data text-chalk-500'}>
-                    {log.prescribedWeight} {settings.unit.toUpperCase()}
-                  </span>
-                  {logged && (
-                    <div className="flex gap-1">
-                      {log.sets
-                        .filter((s) => !s.isWarmup)
-                        .map((s) => (
-                          <span
-                            key={s.setIndex}
-                            className={`h-2 w-2 rounded-full ${
-                              s.completedReps != null && s.completedReps >= s.targetReps ? 'bg-chalk-100' : 'border border-fail'
-                            }`}
-                          />
-                        ))}
-                    </div>
+                  {log.skipped ? (
+                    <span className="text-data text-chalk-500">Skipped</span>
+                  ) : (
+                    <>
+                      <span className={logged ? 'text-data text-chalk-100' : 'text-data text-chalk-500'}>
+                        {log.prescribedWeight} {settings.unit.toUpperCase()}
+                      </span>
+                      {logged && (
+                        <div className="flex gap-1">
+                          {log.sets
+                            .filter((s) => !s.isWarmup)
+                            .map((s) => (
+                              <span
+                                key={s.setIndex}
+                                className={`h-2 w-2 rounded-full ${
+                                  s.completedReps != null && s.completedReps >= s.targetReps ? 'bg-chalk-100' : 'border border-fail'
+                                }`}
+                              />
+                            ))}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               </button>
+            );
+          }
+
+          if (log.skipped) {
+            return (
+              <div key={log.exerciseId} className="rounded-lg border border-iron-700 bg-iron-900 p-5">
+                <p className="mb-1 text-label uppercase tracking-[0.12em] text-chalk-500">
+                  {index + 1} of {workout.exercises.length}
+                </p>
+                <h2 className="mb-2 text-title text-chalk-100">{exercise.name}</h2>
+                <p className="mb-4 text-body text-chalk-500">Skipped{log.note ? ` — ${log.note}` : ''}</p>
+                <Button variant="secondary" onClick={() => unskipExercise(log.exerciseId)}>
+                  Undo skip
+                </Button>
+              </div>
             );
           }
 
@@ -334,21 +364,15 @@ export function WorkoutScreen() {
                 </div>
               )}
 
-              <div className="mb-2 text-center">
+              <button
+                type="button"
+                onClick={() => setEntrySheet({ kind: 'weight', exerciseId: log.exerciseId, value: log.prescribedWeight })}
+                aria-label={`Edit weight, currently ${log.prescribedWeight} ${settings.unit}`}
+                className="mb-4 block w-full text-center"
+              >
                 <span className="font-display text-weight-hero text-chalk-100">{log.prescribedWeight}</span>
                 <span className="ml-2 align-baseline text-label text-chalk-500">{settings.unit.toUpperCase()}</span>
-              </div>
-
-              <div className="mb-4 flex justify-center">
-                <button
-                  type="button"
-                  onClick={() => setEntrySheet({ kind: 'weight', exerciseId: log.exerciseId, value: log.prescribedWeight })}
-                  className="flex items-center gap-1 text-label uppercase tracking-[0.12em] text-chalk-500"
-                >
-                  <Pencil size={12} aria-hidden="true" />
-                  Edit weight
-                </button>
-              </div>
+              </button>
 
               {exercise.kind === 'barbell' && exercise.barWeight != null && (
                 <div className="mb-4 flex justify-center">
@@ -434,6 +458,36 @@ export function WorkoutScreen() {
                     className="mt-2 w-full rounded-sm border border-iron-700 bg-transparent p-2 text-body text-chalk-100"
                     rows={2}
                   />
+                )}
+              </div>
+
+              <div className="mt-4">
+                <button
+                  type="button"
+                  onClick={() => setSkipPromptOpen((prev) => ({ ...prev, [log.exerciseId]: !prev[log.exerciseId] }))}
+                  className="text-data text-chalk-500"
+                >
+                  {skipPromptOpen[log.exerciseId] ? '▾' : '▸'} Skip this exercise
+                </button>
+                {skipPromptOpen[log.exerciseId] && (
+                  <div className="mt-2 space-y-2">
+                    <textarea
+                      value={skipReasonDraft[log.exerciseId] ?? ''}
+                      onChange={(e) => setSkipReasonDraft((prev) => ({ ...prev, [log.exerciseId]: e.target.value }))}
+                      placeholder="Why are you skipping? (optional)"
+                      className="w-full rounded-sm border border-iron-700 bg-transparent p-2 text-body text-chalk-100"
+                      rows={2}
+                    />
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        skipExercise(log.exerciseId, skipReasonDraft[log.exerciseId] ?? '');
+                        setSkipPromptOpen((prev) => ({ ...prev, [log.exerciseId]: false }));
+                      }}
+                    >
+                      Skip exercise
+                    </Button>
+                  </div>
                 )}
               </div>
 

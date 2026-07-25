@@ -83,7 +83,9 @@ export function HistoryCalendarView({ workouts, onSelectWorkout }: HistoryCalend
           const key = `${year}-${month}-${day}`;
           const workout = byDay.get(key);
           const isToday = isCurrentRealMonth && day === today.getDate();
-          const allSucceeded = workout ? workout.exercises.every((e) => e.succeeded) : false;
+          const attempted = workout ? workout.exercises.filter((e) => !e.skipped) : [];
+          const allSucceeded = attempted.length > 0 && attempted.every((e) => e.succeeded);
+          const allSkipped = workout != null && attempted.length === 0;
 
           return (
             <button
@@ -102,7 +104,13 @@ export function HistoryCalendarView({ workouts, onSelectWorkout }: HistoryCalend
               </span>
               <span
                 className={`h-1.5 w-1.5 rounded-full ${
-                  !workout ? 'bg-transparent' : allSucceeded ? 'bg-chalk-100' : 'border border-fail'
+                  !workout
+                    ? 'bg-transparent'
+                    : allSucceeded
+                      ? 'bg-chalk-100'
+                      : allSkipped
+                        ? 'border border-iron-700'
+                        : 'border border-fail'
                 }`}
               />
             </button>
