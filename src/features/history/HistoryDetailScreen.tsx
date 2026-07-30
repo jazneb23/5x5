@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import * as repo from '../../data/repository';
+import { canResumeWorkout } from '../../domain/resume';
 import type { Workout } from '../../domain/types';
 import { useAppStore } from '../../state/useAppStore';
 import { ScreenHeader } from '../../components/ScreenHeader';
@@ -14,14 +15,20 @@ export function HistoryDetailScreen() {
   const exercises = useAppStore((s) => s.exercises);
   const editHistoricalWorkout = useAppStore((s) => s.editHistoricalWorkout);
   const deleteHistoricalWorkout = useAppStore((s) => s.deleteHistoricalWorkout);
+  const resumeWorkout = useAppStore((s) => s.resumeWorkout);
 
   const workout = useLiveQuery(() => (id ? repo.getWorkout(id) : undefined), [id]);
+  const allWorkouts = useLiveQuery(() => repo.getAllWorkouts(), []);
   const [draft, setDraft] = useState<Workout | null>(null);
   const [confirmSave, setConfirmSave] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmResume, setConfirmResume] = useState(false);
 
   const current = draft ?? workout;
   const dirty = draft != null;
+  // Only the newest completed session can be reopened, and only while
+  // nothing else is in progress — see domain/resume.ts.
+  const canResume = workout != null && allWorkouts != null && canResumeWorkout(workout, allWorkouts);
 
   if (!workout) {
     return (
@@ -58,6 +65,13 @@ export function HistoryDetailScreen() {
     await deleteHistoricalWorkout(id);
     setConfirmDelete(false);
     navigate('/history', { replace: true });
+  }
+
+  async function handleResume() {
+    if (!id) return;
+    await resumeWorkout(id);
+    setConfirmResume(false);
+    navigate('/workout');
   }
 
   return (
@@ -103,6 +117,11 @@ export function HistoryDetailScreen() {
 
         <div className="mt-8 space-y-3">
           {dirty && <Button onClick={() => setConfirmSave(true)}>Save changes</Button>}
+          {canResume && !dirty && (
+            <Button variant="secondary" onClick={() => setConfirmResume(true)}>
+              Resume workout
+            </Button>
+          )}
           <Button variant="destructive" onClick={() => setConfirmDelete(true)}>
             Delete workout
           </Button>
@@ -117,6 +136,15 @@ export function HistoryDetailScreen() {
         destructive={false}
         onConfirm={handleSave}
         onCancel={() => setConfirmSave(false)}
+      />
+      <ConfirmSheet
+        open={confirmResume}
+        title="Resume this workout?"
+        body="This session reopens so you can log work you missed. Its progression is rolled back until you finish it again, and it keeps its original date."
+        confirmLabel="Resume workout"
+        destructive={false}
+        onConfirm={() => void handleResume()}
+        onCancel={() => setConfirmResume(false)}
       />
       <ConfirmSheet
         open={confirmDelete}

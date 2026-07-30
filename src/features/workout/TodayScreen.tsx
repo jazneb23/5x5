@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { Link, useNavigate } from 'react-router-dom';
 import * as repo from '../../data/repository';
 import { nextWorkoutType, WORKOUT_TEMPLATES } from '../../domain/program';
+import { resumePrompt, type UnfinishedExercise } from '../../domain/resume';
 import type { WorkoutType } from '../../domain/types';
 import { useAppStore } from '../../state/useAppStore';
 import { ScreenHeader } from '../../components/ScreenHeader';
@@ -25,6 +26,12 @@ function daysSince(ts: number): number {
   return Math.floor((Date.now() - ts) / (24 * 60 * 60 * 1000));
 }
 
+const UNFINISHED_WORDING: Record<UnfinishedExercise['reason'], string> = {
+  skipped: 'skipped',
+  unlogged: 'not logged',
+  partial: 'partly logged',
+};
+
 export function TodayScreen() {
   const navigate = useNavigate();
   const exercises = useAppStore((s) => s.exercises);
@@ -32,6 +39,7 @@ export function TodayScreen() {
   const settings = useAppStore((s) => s.settings);
   const currentWorkout = useAppStore((s) => s.currentWorkout);
   const startWorkout = useAppStore((s) => s.startWorkout);
+  const resumeWorkout = useAppStore((s) => s.resumeWorkout);
 
   const workouts = useLiveQuery(() => repo.getAllWorkouts(), []);
 
@@ -53,10 +61,22 @@ export function TodayScreen() {
     .sort((a, b) => a.order - b.order);
   const allNext = [...nextExercises, ...customForNext];
 
+  // A finished session with work still on the table, offered back for a
+  // couple of days. Suppressed while any session is in progress — the app
+  // holds one at a time.
+  const unfinishedSession = currentWorkout ? null : resumePrompt(workouts, Date.now());
+
   async function handleStart() {
     unlockAudioContext();
     if (settings.notificationsEnabled) await requestNotificationPermission();
     await startWorkout(nextType);
+    navigate('/workout');
+  }
+
+  async function handleResume(workoutId: string) {
+    unlockAudioContext();
+    if (settings.notificationsEnabled) await requestNotificationPermission();
+    await resumeWorkout(workoutId);
     navigate('/workout');
   }
 
@@ -76,6 +96,26 @@ export function TodayScreen() {
             It has been over 30 days since your last export. Back up your data in Settings.
           </Link>
         )}
+        {unfinishedSession && (
+          <div className="mb-4 rounded-lg border border-iron-700 bg-iron-900 p-5">
+            <p className="mb-1 text-label uppercase tracking-[0.12em] text-chalk-500">Unfinished</p>
+            <p className="mb-2 font-display text-display-md text-chalk-100">{unfinishedSession.workout.type}</p>
+            <p className="mb-4 text-body text-chalk-300">
+              {formatShortDate(unfinishedSession.workout.completedAt as number)} ·{' '}
+              {unfinishedSession.unfinished
+                .map((u) => {
+                  const exercise = exercises.find((e) => e.id === u.exerciseId);
+                  return `${exercise?.name ?? 'Exercise'} ${UNFINISHED_WORDING[u.reason]}`;
+                })
+                .join(', ')}
+              .
+            </p>
+            <Button variant="secondary" onClick={() => void handleResume(unfinishedSession.workout.id)}>
+              Resume workout {unfinishedSession.workout.type}
+            </Button>
+          </div>
+        )}
+
         <div className="rounded-lg border border-iron-700 bg-iron-900 p-5">
           <p className="mb-1 text-label uppercase tracking-[0.12em] text-chalk-500">
             {currentWorkout ? 'In progress' : 'Next workout'}
@@ -115,7 +155,9 @@ export function TodayScreen() {
 
           <div className="mt-5">
             {currentWorkout ? (
-              <Button onClick={() => navigate('/workout')}>Resume workout · {formatElapsed(currentWorkout.startedAt)}</Button>
+              <Button onClick={() => navigate('/workout')}>
+                Resume workout · {formatElapsed(currentWorkout.resumedAt ?? currentWorkout.startedAt)}
+              </Button>
             ) : (
               <Button onClick={handleStart}>Start workout</Button>
             )}

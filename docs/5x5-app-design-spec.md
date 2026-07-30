@@ -298,6 +298,8 @@ The letter A or B is set in `display-md` in `--signal`. It is the only signal-co
 
 Recent rows use filled `--chalk-100` dots for passed exercises and hollow `--fail` rings for failed ones.
 
+When the last session was finished with work still on it, an `UNFINISHED` card sits above the next-workout card, in the same container treatment. Its A or B is `display-md` in `--chalk-100`, not `--signal`: the signal color stays with the next workout and its button, so the two cards never compete. One line of `body` in `--chalk-300` gives the date and what was left, in the form `Thu 30 Jul · Bench Press not logged.`, and the action is a secondary button reading `Resume workout A`.
+
 ### 6.2 Workout, the primary screen
 
 ```
