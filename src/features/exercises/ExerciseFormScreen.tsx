@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import type { ExerciseKind, ProgressionScheme, WorkoutAssignment } from '../../domain/types';
+import { parseRepTargets, workSetRepTargets } from '../../domain/program';
+import type { Exercise, ExerciseKind, ProgressionScheme, WorkoutAssignment } from '../../domain/types';
 import { useAppStore } from '../../state/useAppStore';
 import { ScreenHeader } from '../../components/ScreenHeader';
 import { Button } from '../../components/Button';
@@ -45,7 +46,9 @@ export function ExerciseFormScreen() {
   const [name, setName] = useState(existing?.name ?? '');
   const [kind, setKind] = useState<ExerciseKind>(existing?.kind ?? 'barbell');
   const [defaultSets, setDefaultSets] = useState(existing?.defaultSets ?? 5);
-  const [defaultReps, setDefaultReps] = useState(existing?.defaultReps ?? 5);
+  // One number for uniform sets, or one per set ("12/10/8/8") for a scheme
+  // like the volume squat's.
+  const [repsText, setRepsText] = useState(() => initialRepsText(existing));
   const [startingWeight, setStartingWeight] = useState(existing?.startingWeight ?? 45);
   const [increment, setIncrement] = useState(existing?.increment ?? 5);
   const [progression, setProgression] = useState<ProgressionScheme>(existing?.progression ?? 'linear');
@@ -56,13 +59,24 @@ export function ExerciseFormScreen() {
   );
   const [confirmArchive, setConfirmArchive] = useState(false);
 
+  const repTargets = parseRepTargets(repsText);
+  const perSetReps = repTargets != null && repTargets.length > 1;
+  // A per-set list carries its own set count; a single number leaves the sets
+  // field in charge.
+  const effectiveSets = perSetReps ? (repTargets as number[]).length : defaultSets;
+
   async function handleSave() {
+    if (repTargets == null) return;
+    const shape = {
+      defaultSets: effectiveSets,
+      defaultReps: repTargets[0],
+      repScheme: perSetReps ? repTargets : null,
+    };
     if (isNew) {
       await createExercise({
         name,
         kind,
-        defaultSets,
-        defaultReps,
+        ...shape,
         startingWeight,
         increment,
         progression,
@@ -74,8 +88,7 @@ export function ExerciseFormScreen() {
         ...existing,
         name,
         kind,
-        defaultSets,
-        defaultReps,
+        ...shape,
         increment,
         progression,
         barWeight: kind === 'barbell' ? barWeight : null,
@@ -118,20 +131,26 @@ export function ExerciseFormScreen() {
           <Field label="Sets">
             <input
               type="number"
-              value={defaultSets}
+              value={effectiveSets}
+              disabled={perSetReps}
               onChange={(e) => setDefaultSets(Number(e.target.value))}
-              className="w-full rounded-sm border border-iron-700 bg-transparent px-3 py-3 font-mono text-body text-chalk-100"
+              className="w-full rounded-sm border border-iron-700 bg-transparent px-3 py-3 font-mono text-body text-chalk-100 disabled:opacity-50"
             />
           </Field>
           <Field label="Reps">
             <input
-              type="number"
-              value={defaultReps}
-              onChange={(e) => setDefaultReps(Number(e.target.value))}
+              value={repsText}
+              inputMode="numeric"
+              onChange={(e) => setRepsText(e.target.value)}
               className="w-full rounded-sm border border-iron-700 bg-transparent px-3 py-3 font-mono text-body text-chalk-100"
             />
           </Field>
         </div>
+        <p className={`-mt-3 text-label ${repTargets == null ? 'text-fail' : 'text-chalk-500'}`}>
+          {repTargets == null
+            ? 'Reps must be whole numbers — one for every set, or one per set.'
+            : 'One number for every set, or one per set: 12/10/8/8.'}
+        </p>
 
         <div className="grid grid-cols-2 gap-3">
           <Field label={isNew ? 'Starting weight' : 'Current weight'}>
@@ -193,7 +212,7 @@ export function ExerciseFormScreen() {
           </Field>
         )}
 
-        <Button onClick={handleSave} disabled={!name.trim()}>
+        <Button onClick={handleSave} disabled={!name.trim() || repTargets == null}>
           {isNew ? 'Create exercise' : 'Save'}
         </Button>
 
@@ -218,6 +237,14 @@ export function ExerciseFormScreen() {
       />
     </div>
   );
+}
+
+/** Non-uniform sets show every rep target; uniform ones show the single number. */
+function initialRepsText(existing: Exercise | undefined): string {
+  if (!existing) return '5';
+  const targets = workSetRepTargets(existing);
+  if (targets.length === 0) return String(existing.defaultReps);
+  return targets.every((r) => r === targets[0]) ? String(targets[0]) : targets.join('/');
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {

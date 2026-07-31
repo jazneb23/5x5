@@ -100,11 +100,15 @@ src/
 
 | Workout A | Workout B |
 |---|---|
-| Squat 5x5 | Squat 5x5 |
+| Squat (Volume) 12/10/8/8 | Squat 5x5 |
 | Bench Press 5x5 | Overhead Press 5x5 |
 | Barbell Row 5x5 | Deadlift 1x5 |
 
 Exercise order within a session is fixed and is the order shown above. Legs, then push, then pull.
+
+Workout A squats for volume rather than load: four work sets of 12, 10, 8, 8 reps at one lighter weight. Workout B keeps the heavy 5x5. The two are **separate exercises** with separate ids, separate weights, and separate progression tracks — `core-squat-volume` and `core-squat`. Missing reps on one never touches the other, exactly as Bench and Squat never affect each other.
+
+Every work set of the volume squat is at the same weight. The reps descend; the load does not ramp.
 
 ### 3.2 Alternation
 
@@ -126,13 +130,16 @@ The app does not enforce or require a schedule. It shows what is next and lets t
 
 | Exercise | Sets | Reps per set |
 |---|---|---|
-| Squat | 5 | 5 |
+| Squat (Workout B) | 5 | 5 |
+| Squat (Volume) (Workout A) | 4 | 12, 10, 8, 8 |
 | Bench Press | 5 | 5 |
 | Overhead Press | 5 | 5 |
 | Barbell Row | 5 | 5 |
 | Deadlift | 1 | 5 |
 
 Deadlift is one work set of five reps after warmups, not five sets. This is deliberate and must not be "corrected" during implementation.
+
+The volume squat is the only lift whose work sets differ from each other. An exercise carries an optional `repScheme` for this: one rep target per work set, in order. When it is absent, every work set targets `defaultReps`. Success still means every work set hit **its own** target — ten reps clears the second set of a 12/10/8/8 but fails the first.
 
 ---
 
@@ -164,6 +171,9 @@ interface Exercise {
   isCore: boolean;             // true for the five program lifts. core lifts cannot be deleted.
   defaultSets: number;
   defaultReps: number;
+  repScheme: number[] | null;  // per-set rep targets when sets differ, e.g. [12,10,8,8].
+                               // null means every work set targets defaultReps.
+                               // when present, its length wins over defaultSets.
   increment: number;           // weight added on a successful session
   progression: ProgressionScheme;
   startingWeight: number;
@@ -271,6 +281,7 @@ if (exercise.succeeded) {
 | Exercise | lb | kg |
 |---|---|---|
 | Squat | 5 | 2.5 |
+| Squat (Volume) | 5 | 2.5 |
 | Bench Press | 5 | 2.5 |
 | Overhead Press | 5 | 2.5 |
 | Barbell Row | 5 | 2.5 |
@@ -283,12 +294,17 @@ Every increment is editable per exercise in settings, down to the microloading v
 | Exercise | New lifter | Some experience |
 |---|---|---|
 | Squat | 45 | 95 to 135 |
+| Squat (Volume) | 45 | 65 percent of the squat |
 | Bench Press | 45 | 95 to 135 |
 | Overhead Press | 45 | 65 to 95 |
 | Barbell Row | 65 | 95 to 135 |
 | Deadlift | 95 | 135 to 185 |
 
 Onboarding asks which of the two columns applies and seeds accordingly, then lets the user edit every value on one screen before finishing.
+
+The volume squat seeds at 65 percent of the heavy squat, rounded down to a loadable weight, and follows the squat field on the onboarding screen until the user edits it directly. That derivation happens once. After the first session the two squats progress independently and the volume squat is never recomputed from the heavy one.
+
+An account seeded before Workout A moved to the volume squat gains the exercise on next load, seeded the same way from the heavy squat's **current** weight rather than from the bar.
 
 ### 5.5 Loadable weight rounding
 
@@ -598,4 +614,4 @@ Sourced from stronglifts.com so the implementation does not drift.
 - Failing an exercise means repeating the weight next session, not deloading immediately.
 - Deload 10 percent after three failed attempts at the same weight.
 - Progress rates differ across lifts. Squat and Deadlift climb faster than Bench, Press, and Row. Never hold one lift back to keep it in line with another.
-- Squat appears in every session. That frequency is the engine of the program.
+- Squat appears in every session. That frequency is the engine of the program. This build keeps the frequency but splits the intensity: Workout B squats heavy for 5x5, Workout A squats lighter for 12/10/8/8. That is a deliberate departure from stock StrongLifts, where both sessions squat 5x5.
