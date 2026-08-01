@@ -1,5 +1,12 @@
 import { useMemo, useState } from 'react';
-import { buildCoreExercises, type ExperienceLevel } from '../../domain/program';
+import {
+  buildCoreExercises,
+  CORE_EXERCISE_IDS,
+  repSchemeLabel,
+  volumeSquatWeightFor,
+  type ExperienceLevel,
+} from '../../domain/program';
+import { STANDARD_PLATES } from '../../domain/units';
 import type { Unit } from '../../domain/types';
 import { useAppStore } from '../../state/useAppStore';
 import { Button } from '../../components/Button';
@@ -11,6 +18,8 @@ export function Onboarding() {
   const [unit, setUnit] = useState<Unit>('lb');
   const [experience, setExperience] = useState<ExperienceLevel>('new');
   const [overrides, setOverrides] = useState<Record<string, number>>({});
+  // Once the volume squat is edited by hand it stops following the heavy squat.
+  const [volumeSquatEdited, setVolumeSquatEdited] = useState(false);
   const completeOnboarding = useAppStore((s) => s.completeOnboarding);
   const [submitting, setSubmitting] = useState(false);
 
@@ -19,6 +28,19 @@ export function Onboarding() {
     () => buildCoreExercises(unit, experience, barWeight),
     [unit, experience, barWeight],
   );
+
+  function editStartingWeight(exerciseId: string, weight: number) {
+    setOverrides((prev) => {
+      const next = { ...prev, [exerciseId]: weight };
+      // The volume squat is a fraction of the heavy squat, so keep it in step
+      // while the user is still tuning the squat and hasn't set it themselves.
+      if (exerciseId === CORE_EXERCISE_IDS.squat && !volumeSquatEdited) {
+        next[CORE_EXERCISE_IDS.squatVolume] = volumeSquatWeightFor(weight, barWeight, STANDARD_PLATES[unit]);
+      }
+      if (exerciseId === CORE_EXERCISE_IDS.squatVolume) setVolumeSquatEdited(true);
+      return next;
+    });
+  }
 
   async function finish() {
     setSubmitting(true);
@@ -88,16 +110,17 @@ export function Onboarding() {
             <div className="divide-y divide-iron-800">
               {previewExercises.map((ex) => (
                 <div key={ex.id} className="flex items-center justify-between py-3">
-                  <span className="text-body text-chalk-100">{ex.name}</span>
+                  <span className="text-body text-chalk-100">
+                    {ex.name}
+                    <span className="ml-2 font-mono text-label text-chalk-500">{repSchemeLabel(ex)}</span>
+                  </span>
                   <div className="flex items-center gap-2">
                     <input
                       type="number"
                       inputMode="decimal"
                       className="w-20 rounded-sm border border-iron-700 bg-transparent px-2 py-2 text-right font-mono text-data text-chalk-100"
                       value={overrides[ex.id] ?? ex.startingWeight}
-                      onChange={(e) =>
-                        setOverrides((prev) => ({ ...prev, [ex.id]: Number(e.target.value) }))
-                      }
+                      onChange={(e) => editStartingWeight(ex.id, Number(e.target.value))}
                     />
                     <span className="text-label text-chalk-500">{unit.toUpperCase()}</span>
                   </div>

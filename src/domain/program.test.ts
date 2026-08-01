@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { buildCoreExercises, nextWorkoutType, WORKOUT_TEMPLATES } from './program';
+import {
+  buildCoreExercises,
+  buildVolumeSquatExercise,
+  CORE_EXERCISE_IDS,
+  nextWorkoutType,
+  parseRepTargets,
+  repSchemeLabel,
+  volumeSquatWeightFor,
+  VOLUME_SQUAT_REP_SCHEME,
+  workSetRepTargets,
+  WORKOUT_TEMPLATES,
+} from './program';
+
+const LB_PLATES = [45, 35, 25, 10, 5, 2.5];
 
 describe('nextWorkoutType', () => {
   it('is A when no workout has ever been completed', () => {
@@ -36,12 +49,24 @@ describe('nextWorkoutType', () => {
 });
 
 describe('WORKOUT_TEMPLATES', () => {
-  it('orders Workout A as squat, bench, row', () => {
-    expect(WORKOUT_TEMPLATES.A).toHaveLength(3);
+  it('orders Workout A as volume squat, bench, row', () => {
+    expect(WORKOUT_TEMPLATES.A).toEqual([CORE_EXERCISE_IDS.squatVolume, CORE_EXERCISE_IDS.bench, CORE_EXERCISE_IDS.row]);
   });
 
   it('orders Workout B as squat, press, deadlift', () => {
-    expect(WORKOUT_TEMPLATES.B).toHaveLength(3);
+    expect(WORKOUT_TEMPLATES.B).toEqual([CORE_EXERCISE_IDS.squat, CORE_EXERCISE_IDS.press, CORE_EXERCISE_IDS.deadlift]);
+  });
+
+  it('keeps the heavy squat off Workout A so the two squats never share a weight', () => {
+    expect(WORKOUT_TEMPLATES.A).not.toContain(CORE_EXERCISE_IDS.squat);
+    expect(WORKOUT_TEMPLATES.B).not.toContain(CORE_EXERCISE_IDS.squatVolume);
+  });
+
+  it('still squats in every session', () => {
+    for (const template of Object.values(WORKOUT_TEMPLATES)) {
+      const squats = template.filter((id) => id === CORE_EXERCISE_IDS.squat || id === CORE_EXERCISE_IDS.squatVolume);
+      expect(squats).toHaveLength(1);
+    }
   });
 });
 
@@ -53,12 +78,37 @@ describe('buildCoreExercises', () => {
     expect(deadlift?.defaultReps).toBe(5);
   });
 
+  it('gives the volume squat four sets of 12/10/8/8', () => {
+    const exercises = buildCoreExercises('lb', 'new', 45);
+    const volumeSquat = exercises.find((e) => e.id === CORE_EXERCISE_IDS.squatVolume);
+    expect(volumeSquat?.defaultSets).toBe(4);
+    expect(volumeSquat?.repScheme).toEqual([12, 10, 8, 8]);
+    expect(workSetRepTargets(volumeSquat!)).toEqual([12, 10, 8, 8]);
+  });
+
+  it('starts the volume squat lighter than the heavy squat for an experienced lifter', () => {
+    const exercises = buildCoreExercises('lb', 'some', 45);
+    const heavy = exercises.find((e) => e.id === CORE_EXERCISE_IDS.squat);
+    const volume = exercises.find((e) => e.id === CORE_EXERCISE_IDS.squatVolume);
+    expect(volume!.startingWeight).toBeLessThan(heavy!.startingWeight);
+  });
+
   it('gives every other core lift 5 sets of 5 reps', () => {
     const exercises = buildCoreExercises('lb', 'new', 45);
-    for (const ex of exercises.filter((e) => e.name !== 'Deadlift')) {
+    const fiveByFive = exercises.filter((e) => e.name !== 'Deadlift' && e.id !== CORE_EXERCISE_IDS.squatVolume);
+    for (const ex of fiveByFive) {
       expect(ex.defaultSets).toBe(5);
       expect(ex.defaultReps).toBe(5);
+      expect(ex.repScheme).toBeNull();
     }
+  });
+
+  it('gives the two squats separate ids so their progression never crosses', () => {
+    const exercises = buildCoreExercises('lb', 'some', 45);
+    const ids = exercises.map((e) => e.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toContain(CORE_EXERCISE_IDS.squat);
+    expect(ids).toContain(CORE_EXERCISE_IDS.squatVolume);
   });
 
   it('uses the default increments from section 5.3', () => {
@@ -69,5 +119,82 @@ describe('buildCoreExercises', () => {
     const kg = buildCoreExercises('kg', 'new', 20);
     expect(kg.find((e) => e.name === 'Squat')?.increment).toBe(2.5);
     expect(kg.find((e) => e.name === 'Deadlift')?.increment).toBe(5);
+  });
+});
+
+describe('workSetRepTargets', () => {
+  it('expands a uniform prescription across its sets', () => {
+    expect(workSetRepTargets({ defaultSets: 5, defaultReps: 5, repScheme: null })).toEqual([5, 5, 5, 5, 5]);
+    expect(workSetRepTargets({ defaultSets: 1, defaultReps: 5, repScheme: null })).toEqual([5]);
+  });
+
+  it('uses the scheme verbatim, and its length wins over defaultSets', () => {
+    expect(workSetRepTargets({ defaultSets: 5, defaultReps: 5, repScheme: [12, 10, 8, 8] })).toEqual([12, 10, 8, 8]);
+  });
+
+  it('falls back to the uniform prescription for rows written before repScheme existed', () => {
+    // Dexie hands back exactly what was stored, so the field is missing rather than null.
+    const legacyRow = { defaultSets: 5, defaultReps: 5 } as { defaultSets: number; defaultReps: number; repScheme: number[] | null };
+    expect(workSetRepTargets(legacyRow)).toEqual([5, 5, 5, 5, 5]);
+  });
+
+  it('does not hand out the shared scheme array for callers to mutate', () => {
+    const targets = workSetRepTargets({ defaultSets: 4, defaultReps: 12, repScheme: VOLUME_SQUAT_REP_SCHEME });
+    targets[0] = 99;
+    expect(VOLUME_SQUAT_REP_SCHEME[0]).toBe(12);
+  });
+});
+
+describe('repSchemeLabel', () => {
+  it('writes uniform sets as NxM', () => {
+    expect(repSchemeLabel({ defaultSets: 5, defaultReps: 5, repScheme: null })).toBe('5x5');
+    expect(repSchemeLabel({ defaultSets: 1, defaultReps: 5, repScheme: null })).toBe('1x5');
+  });
+
+  it('writes a scheme as its rep targets in order', () => {
+    expect(repSchemeLabel({ defaultSets: 4, defaultReps: 12, repScheme: [12, 10, 8, 8] })).toBe('12/10/8/8');
+  });
+});
+
+describe('parseRepTargets', () => {
+  it('reads a single number as a uniform prescription', () => {
+    expect(parseRepTargets('5')).toEqual([5]);
+  });
+
+  it('reads slash, comma, and space separated schemes', () => {
+    expect(parseRepTargets('12/10/8/8')).toEqual([12, 10, 8, 8]);
+    expect(parseRepTargets('12, 10, 8, 8')).toEqual([12, 10, 8, 8]);
+    expect(parseRepTargets(' 12 10 8 8 ')).toEqual([12, 10, 8, 8]);
+  });
+
+  it('rejects rather than silently dropping anything that is not a positive whole number', () => {
+    expect(parseRepTargets('')).toBeNull();
+    expect(parseRepTargets('12/abc/8')).toBeNull();
+    expect(parseRepTargets('12/0/8')).toBeNull();
+    expect(parseRepTargets('12/-8')).toBeNull();
+    expect(parseRepTargets('12/8.5')).toBeNull();
+  });
+});
+
+describe('volumeSquatWeightFor', () => {
+  it('takes 65 percent of the heavy squat, rounded down to a loadable weight', () => {
+    // 225 * 0.65 = 146.25, and 145 is the nearest loadable weight at or below it.
+    expect(volumeSquatWeightFor(225, 45, LB_PLATES)).toBe(145);
+    expect(volumeSquatWeightFor(135, 45, LB_PLATES)).toBe(85);
+  });
+
+  it('never drops below the bar', () => {
+    expect(volumeSquatWeightFor(45, 45, LB_PLATES)).toBe(45);
+  });
+});
+
+describe('buildVolumeSquatExercise', () => {
+  it('carries the scheme and the seeded weight for an account that predates the split', () => {
+    const volumeSquat = buildVolumeSquatExercise('lb', 45, volumeSquatWeightFor(225, 45, LB_PLATES));
+    expect(volumeSquat.id).toBe(CORE_EXERCISE_IDS.squatVolume);
+    expect(volumeSquat.isCore).toBe(true);
+    expect(volumeSquat.repScheme).toEqual([12, 10, 8, 8]);
+    expect(volumeSquat.startingWeight).toBe(145);
+    expect(volumeSquat.increment).toBe(5);
   });
 });

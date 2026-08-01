@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { repSchemeLabel } from '../../domain/program';
 import { useAppStore } from '../../state/useAppStore';
 import { ScreenHeader } from '../../components/ScreenHeader';
 import { Button } from '../../components/Button';
@@ -21,7 +22,10 @@ export function ExercisesScreen() {
         <div className="mb-6 divide-y divide-iron-800">
           {core.map((e) => (
             <Link key={e.id} to={`/exercises/${e.id}`} className="flex items-center justify-between py-3">
-              <span className="text-body text-chalk-100">{e.name}</span>
+              <span className="text-body text-chalk-100">
+                {e.name}
+                <span className="ml-2 font-mono text-label text-chalk-500">{repSchemeLabel(e)}</span>
+              </span>
               <span className="font-mono text-data text-chalk-500">
                 {exerciseStates[e.id]?.currentWeight ?? e.startingWeight} {settings.unit.toUpperCase()}
               </span>

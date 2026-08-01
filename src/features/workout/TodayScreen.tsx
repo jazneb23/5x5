@@ -2,7 +2,7 @@ import { Fragment } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Link, useNavigate } from 'react-router-dom';
 import * as repo from '../../data/repository';
-import { nextWorkoutType, WORKOUT_TEMPLATES } from '../../domain/program';
+import { nextWorkoutType, repSchemeLabel, WORKOUT_TEMPLATES } from '../../domain/program';
 import type { WorkoutType } from '../../domain/types';
 import { useAppStore } from '../../state/useAppStore';
 import { ScreenHeader } from '../../components/ScreenHeader';
@@ -92,7 +92,10 @@ export function TodayScreen() {
               const borderClass = index > 0 ? 'border-t border-iron-800' : '';
               return (
                 <Fragment key={exerciseId}>
-                  <span className={`py-3 text-body text-chalk-100 ${borderClass}`}>{exercise.name}</span>
+                  <span className={`py-3 text-body text-chalk-100 ${borderClass}`}>
+                    {exercise.name}
+                    <span className="ml-2 font-mono text-label text-chalk-500">{repSchemeLabel(exercise)}</span>
+                  </span>
                   <div className={`flex items-center justify-end py-3 ${borderClass}`}>
                     {exercise.kind === 'barbell' && exercise.barWeight != null && (
                       <PlateStrip
