@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MoreHorizontal, X } from 'lucide-react';
+import { unfinishedExercises } from '../../domain/resume';
 import type { ExerciseKind, ExerciseLog, ProgressionScheme } from '../../domain/types';
 import { useAppStore } from '../../state/useAppStore';
 import { ScreenHeader } from '../../components/ScreenHeader';
@@ -18,6 +19,10 @@ function formatElapsed(startedAt: number): string {
   const h = Math.floor(totalMinutes / 60);
   const m = totalMinutes % 60;
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}` : `${m} min`;
+}
+
+function formatShortDate(ts: number): string {
+  return new Date(ts).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
 }
 
 function formatCountdown(ms: number): string {
@@ -70,6 +75,17 @@ export function WorkoutScreen() {
 
   const [activeIndex, setActiveIndex] = useState(() => {
     if (!workout) return 0;
+    // A reopened session opens on the work that was left undone — which
+    // includes an exercise that was skipped, since that is usually the reason
+    // the session was reopened at all. A skipped exercise counts as logged
+    // everywhere else, so this only applies to a resumed session.
+    if (workout.completedAtBeforeResume != null) {
+      const [firstUnfinished] = unfinishedExercises(workout);
+      const unfinishedIdx = firstUnfinished
+        ? workout.exercises.findIndex((log) => log.exerciseId === firstUnfinished.exerciseId)
+        : -1;
+      if (unfinishedIdx !== -1) return unfinishedIdx;
+    }
     const idx = workout.exercises.findIndex((log) => !isExerciseLogged(log));
     return idx === -1 ? workout.exercises.length - 1 : idx;
   });
@@ -169,6 +185,10 @@ export function WorkoutScreen() {
 
   if (!workout) return null;
 
+  // Non-null on a session that was finished and then reopened: the date it
+  // was originally completed on, which finishing again restores.
+  const resumedFrom = workout.completedAtBeforeResume ?? null;
+
   const isLastExercise = activeIndex === workout.exercises.length - 1;
   const lastExerciseLog = workout.exercises[workout.exercises.length - 1];
   const workoutFullyLogged = isExerciseLogged(lastExerciseLog);
@@ -219,7 +239,7 @@ export function WorkoutScreen() {
         right={
           <div className="relative">
             <span className="mr-3 font-mono text-data text-chalk-500" aria-hidden="true">
-              {formatElapsed(workout.startedAt)}
+              {formatElapsed(workout.resumedAt ?? workout.startedAt)}
             </span>
             <button type="button" aria-label="More options" onClick={() => setMenuOpen((v) => !v)} className="text-chalk-100">
               <MoreHorizontal size={22} />
@@ -254,6 +274,12 @@ export function WorkoutScreen() {
       />
 
       <div className="px-5 pb-6">
+        {resumedFrom != null && (
+          <p className="mb-4 text-data text-chalk-500">
+            Resumed from {formatShortDate(resumedFrom)}. Finishing keeps that date.
+          </p>
+        )}
+
         {workout.exercises.map((log, index) => {
           const exercise = exercises.find((e) => e.id === log.exerciseId);
           if (!exercise) return null;
@@ -644,7 +670,11 @@ export function WorkoutScreen() {
       <ConfirmSheet
         open={confirmDiscard}
         title="Discard workout?"
-        body="Discard this workout? Logged sets will not be saved."
+        body={
+          resumedFrom != null
+            ? `Discard this workout? Every set logged on ${formatShortDate(resumedFrom)} is deleted with it.`
+            : 'Discard this workout? Logged sets will not be saved.'
+        }
         confirmLabel="Discard workout"
         onConfirm={() => {
           setConfirmDiscard(false);

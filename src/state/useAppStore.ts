@@ -24,6 +24,7 @@ import {
 } from '../domain/program';
 import { applyProgression, exerciseSucceeded, failedWorkSets, recomputeExerciseStates, warmupWeightsFromLog, type FailedSetInfo } from '../domain/progression';
 import { generateWarmupSets } from '../domain/warmup';
+import { canResumeWorkout } from '../domain/resume';
 import { allTimeBest } from '../domain/prs';
 import { convertAndRoundWeight, STANDARD_BAR_WEIGHT, STANDARD_PLATES } from '../domain/units';
 import * as repo from '../data/repository';
@@ -64,6 +65,7 @@ interface AppState {
 
   nextWorkoutTypeForNewSession: () => Promise<WorkoutType>;
   startWorkout: (type: WorkoutType) => Promise<void>;
+  resumeWorkout: (workoutId: string) => Promise<void>;
   tapSetCircle: (exerciseId: string, setIndex: number) => void;
   setReps: (exerciseId: string, setIndex: number, reps: number) => void;
   setExerciseNote: (exerciseId: string, note: string) => void;
@@ -180,6 +182,25 @@ function lastFailureForExercise(exerciseId: string, workoutsMostRecentFirst: Wor
     return log.succeeded === false ? failedWorkSets(log) : [];
   }
   return [];
+}
+
+/**
+ * The failure notices to show for a session's exercises, read from completed
+ * history. A session that is currently in progress — including one that was
+ * reopened — is not completed, so it never reports a failure against itself.
+ */
+async function loadLastFailures(exerciseIds: string[]): Promise<Record<string, FailedSetInfo[]>> {
+  const priorWorkouts = await repo.getAllWorkouts();
+  const completedMostRecentFirst = priorWorkouts
+    .filter((w) => w.completedAt != null)
+    .sort((a, b) => (b.completedAt as number) - (a.completedAt as number));
+
+  const byExercise: Record<string, FailedSetInfo[]> = {};
+  for (const exerciseId of exerciseIds) {
+    const failures = lastFailureForExercise(exerciseId, completedMostRecentFirst);
+    if (failures.length > 0) byExercise[exerciseId] = failures;
+  }
+  return byExercise;
 }
 
 /**
@@ -307,15 +328,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     const ordered = [...coreExercises, ...customExercises];
 
-    const priorWorkouts = await repo.getAllWorkouts();
-    const completedMostRecentFirst = priorWorkouts
-      .filter((w) => w.completedAt != null)
-      .sort((a, b) => (b.completedAt as number) - (a.completedAt as number));
-    const lastFailureByExercise: Record<string, FailedSetInfo[]> = {};
-    for (const exercise of ordered) {
-      const failures = lastFailureForExercise(exercise.id, completedMostRecentFirst);
-      if (failures.length > 0) lastFailureByExercise[exercise.id] = failures;
-    }
+    const lastFailureByExercise = await loadLastFailures(ordered.map((e) => e.id));
 
     const workout: Workout = {
       id: crypto.randomUUID(),
@@ -341,6 +354,46 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     await repo.saveWorkout(workout);
     set({ currentWorkout: workout, lastCompletionSummary: null, lastFailureByExercise });
+  },
+
+  /**
+   * Reopens a session that was already finished so work missed that day can
+   * still be logged against it — the user finished with an exercise skipped
+   * or never logged, and comes back to do it.
+   *
+   * The session goes back to in-progress, and progression is replayed from
+   * the remaining completed history, which rolls every exercise back to the
+   * weight it was prescribed before that session. Any failure or increment
+   * this session produced is undone; finishing it again applies the outcome
+   * of what was actually logged, at the original completion time.
+   */
+  resumeWorkout: async (workoutId) => {
+    if (get().currentWorkout) return;
+    const [workout, allWorkouts] = await Promise.all([repo.getWorkout(workoutId), repo.getAllWorkouts()]);
+    if (!workout || !canResumeWorkout(workout, allWorkouts)) return;
+
+    const reopened: Workout = {
+      ...workout,
+      completedAt: null,
+      resumedAt: now(),
+      // A session reopened more than once keeps the completion time it had
+      // the first time, so the date never walks forward.
+      completedAtBeforeResume: workout.completedAtBeforeResume ?? workout.completedAt,
+      // Success is decided at completion. It is recomputed when this session
+      // is finished again.
+      exercises: workout.exercises.map((log) => ({ ...log, succeeded: null })),
+    };
+    await repo.saveWorkout(reopened);
+    await get().recomputeProgressionFromHistory();
+
+    const lastFailureByExercise = await loadLastFailures(reopened.exercises.map((log) => log.exerciseId));
+
+    set({
+      currentWorkout: reopened,
+      lastCompletionSummary: null,
+      lastTimerTrigger: null,
+      lastFailureByExercise,
+    });
   },
 
   tapSetCircle: (exerciseId, setIndex) => {
@@ -609,7 +662,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     const workout = get().currentWorkout;
     if (!workout) throw new Error('No workout in progress');
     const { exercises, exerciseStates, settings } = get();
-    const completedAt = now();
+    // A reopened session keeps the completion time it had before: it is the
+    // same session, so it holds its place in history and in the
+    // chronological progression replay rather than jumping to today.
+    const completedAt = workout.completedAtBeforeResume ?? now();
 
     const priorWorkouts = await repo.getAllWorkouts();
 
@@ -676,7 +732,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { ...log, succeeded };
     });
 
-    const finishedWorkout: Workout = { ...workout, exercises: finishedExercises, completedAt };
+    const finishedWorkout: Workout = {
+      ...workout,
+      exercises: finishedExercises,
+      completedAt,
+      resumedAt: null,
+      completedAtBeforeResume: null,
+    };
     await repo.saveWorkout(finishedWorkout);
     await Promise.all(Object.values(nextStates).map((s) => repo.upsertExerciseState(s)));
 

@@ -88,6 +88,14 @@ export interface Workout {
   exercises: ExerciseLog[];
   bodyweight: number | null;
   note: string | null;
+  // Set only while a finished session has been reopened to add work that was
+  // missed. `resumedAt` is when it was reopened and drives elapsed-time
+  // display; `completedAtBeforeResume` is the completion time it had before,
+  // restored when the session is finished again so it keeps its place in
+  // history and in the chronological progression replay. Both are cleared on
+  // finish, and absent on a session that was never reopened.
+  resumedAt?: number | null;
+  completedAtBeforeResume?: number | null;
 }
 
 export interface DeloadEvent {

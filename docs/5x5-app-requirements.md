@@ -429,6 +429,7 @@ While a workout is in progress and `settings.keepScreenAwake` is true, hold a `n
 - Card showing the next workout: the letter A or B, the three exercises, and the prescribed weight for each
 - Primary action: `Start workout`
 - If a workout is in progress: `Resume workout` instead, with the elapsed time
+- If the last completed workout still has work on it — an exercise skipped, never logged, or only partly logged — and it finished within the last 48 hours: an `Unfinished` card above the next workout naming what was left, with `Resume workout <type>`. See 9.8.
 - Last three sessions in a compact list with date, type, and a pass or fail dot per exercise
 - Current streak or "last trained N days ago"
 
@@ -474,6 +475,7 @@ Also on this screen:
 - Each row: date, type, duration, one dot per exercise colored by pass or fail
 - Tapping a row opens the full set-by-set detail, editable
 - Editing a past workout re-runs the progression engine forward from that workout to recompute current state. Warn the user before applying.
+- The most recent completed workout offers `Resume workout`, behind a confirmation. See 9.8.
 
 ### 9.5 Progress
 
@@ -499,6 +501,17 @@ Everything in the `Settings` interface, grouped:
 - Rest timer: durations, sound, vibration, notifications
 - Display: keep screen awake, show warmup sets
 - Data: export JSON, import JSON, reset all data behind a typed confirmation
+
+### 9.8 Resuming a finished workout
+
+A session gets finished with work still on it: an exercise skipped, or simply never logged before the finish button. The user comes back the next day to do that exercise. It belongs to that session, not to a new one.
+
+- Only the most recent completed workout can be reopened, and only while no other workout is in progress. The rollback below replays the rest of history, which lands on the state that session started from only when it is the newest one.
+- Reopening sets `completedAt` back to null and re-runs the progression engine over the remaining completed history. Every increment, failure count, and deload that session produced is undone, including a failure recorded against an exercise that was never actually attempted.
+- The session keeps its original completion time. Finishing it again restores that timestamp, so it holds its place in history and in the chronological replay rather than moving to today. Its recorded duration is unchanged.
+- The workout screen opens on the first exercise with work left, including a skipped one, and states that the session was resumed and which date it will keep.
+- Finishing again applies progression from what was actually logged. Finishing with nothing added leaves state exactly as it was before reopening.
+- Discarding a reopened session deletes the whole session, including the sets logged the first time. The confirmation must say so.
 
 ---
 
@@ -536,6 +549,7 @@ There is no server. The export file is the only backup. Make this obvious in set
 | Case | Required behavior |
 |---|---|
 | App closed mid-workout | Resume the in-progress workout on next launch, with sets preserved |
+| Workout finished with an exercise skipped or never logged | Offer to reopen that session, roll progression back to before it, and let the missing work be logged against it. Section 9.8. |
 | Timer running when app closed | Recompute from `endsAt` on launch. If elapsed, show the completed state. |
 | First ever launch | Onboarding flow, then home shows Workout A |
 | User logs zero reps on every set | Exercise fails. Failure counter increments. Normal path. |
