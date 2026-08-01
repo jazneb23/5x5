@@ -21,6 +21,7 @@ function exercise(overrides: Partial<Exercise> = {}): Exercise {
     isCore: true,
     defaultSets: 5,
     defaultReps: 5,
+    repScheme: null,
     increment: 5,
     progression: 'linear',
     startingWeight: 45,
@@ -132,6 +133,55 @@ describe('exerciseSucceeded', () => {
 
   it('an exercise with no logged work sets does not succeed', () => {
     expect(exerciseSucceeded(log([]))).toBe(false);
+  });
+
+  it('holds each set to its own target under a 12/10/8/8 scheme', () => {
+    const sets = [12, 10, 8, 8].map((targetReps, i) => ({
+      setIndex: i,
+      targetReps,
+      completedReps: targetReps,
+      weight: 135,
+      isWarmup: false,
+      loggedAt: 1,
+    }));
+    expect(exerciseSucceeded(log(sets))).toBe(true);
+  });
+
+  it('fails 12/10/8/8 when a set hits another set’s target but misses its own', () => {
+    // 10 reps clears set two's target but not set one's twelve.
+    const sets = [12, 10, 8, 8].map((targetReps, i) => ({
+      setIndex: i,
+      targetReps,
+      completedReps: i === 0 ? 10 : targetReps,
+      weight: 135,
+      isWarmup: false,
+      loggedAt: 1,
+    }));
+    expect(exerciseSucceeded(log(sets))).toBe(false);
+    expect(failedWorkSets(log(sets))).toEqual([{ setIndex: 0, completedReps: 10, targetReps: 12 }]);
+  });
+});
+
+describe('a non-uniform rep scheme progresses like any other exercise', () => {
+  const volumeSquat = exercise({
+    id: 'core-squat-volume',
+    name: 'Squat (Volume)',
+    defaultSets: 4,
+    defaultReps: 12,
+    repScheme: [12, 10, 8, 8],
+  });
+
+  it('adds the increment when every set hits its own target', () => {
+    const result = applyProgression(volumeSquat, state({ currentWeight: 135 }), true, LB_PLATES, 1);
+    expect(result.state.currentWeight).toBe(140);
+    expect(result.deload).toBeNull();
+  });
+
+  it('deloads 10 percent off the third consecutive failure, same as 5x5', () => {
+    const result = applyProgression(volumeSquat, state({ currentWeight: 135, consecutiveFailures: 2 }), false, LB_PLATES, 1);
+    // 135 * 0.9 = 121.5, rounded down to a loadable 120.
+    expect(result.state.currentWeight).toBe(120);
+    expect(result.deload).toEqual({ fromWeight: 135, toWeight: 120 });
   });
 });
 

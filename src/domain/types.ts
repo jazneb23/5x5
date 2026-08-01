@@ -25,6 +25,12 @@ export interface Exercise {
   isCore: boolean; // true for the five program lifts. core lifts cannot be deleted.
   defaultSets: number;
   defaultReps: number;
+  // Per-set rep targets when the work sets are not uniform, one entry per work
+  // set, in set order — e.g. the A-day volume squat's [12, 10, 8, 8]. Null
+  // means every work set targets `defaultReps`. When present its length is
+  // authoritative over `defaultSets`. Weight is the same across all work sets
+  // either way; this varies reps only, never load.
+  repScheme: number[] | null;
   increment: number; // weight/value added on a successful session
   progression: ProgressionScheme;
   startingWeight: number;

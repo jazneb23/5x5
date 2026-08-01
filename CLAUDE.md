@@ -22,18 +22,20 @@ Vite, React 18, TypeScript strict, Tailwind, Zustand, Dexie, Recharts, vite-plug
 3. No hex color literals outside `src/design/tokens.css`. Colors come from Tailwind tokens which read CSS variables.
 4. No `any`. No `@ts-ignore` without a comment explaining why.
 
-## The two things most likely to be built wrong
+## The three things most likely to be built wrong
 
 **The rest timer.** Never count down by accumulating `setInterval` ticks. Store an absolute `endsAt` timestamp and recompute remaining time from `Date.now()` on every frame and on every `visibilitychange`. Mobile browsers suspend timers when the screen locks. See requirements section 8.3.
 
 **Deadlift.** It is 1x5, one work set of five reps. Not 5x5. This is correct and deliberate.
 
+**The two squats.** Workout A squats for volume — `core-squat-volume`, four sets of 12/10/8/8 at one lighter weight. Workout B squats heavy — `core-squat`, 5x5. They are separate exercises with separate weights and separate progression tracks, and neither is a bug to be reconciled with the other. Requirements section 3.1.
+
 ## Progression rules, in short
 
-- Success on an exercise means every work set hit target reps. Warmup sets never count.
+- Success on an exercise means every work set hit **its own** target reps. Sets are not always uniform; see `repScheme` and `workSetRepTargets`. Warmup sets never count.
 - Success adds that exercise's increment. Failure repeats the weight.
 - Three consecutive failures at the same weight triggers a 10 percent deload, rounded down to a loadable weight.
-- Exercises progress independently. Failing Bench never affects Squat.
+- Exercises progress independently. Failing Bench never affects Squat, and failing the volume squat never affects the heavy one.
 - The next workout type comes from the last completed workout, never from the calendar.
 
 ## Testing

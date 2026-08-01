@@ -11,7 +11,17 @@ import type {
   WorkoutAssignment,
   WorkoutType,
 } from '../domain/types';
-import { buildCoreExercises, CORE_EXERCISE_IDS, nextWorkoutType, WORKOUT_TEMPLATES, warmupFloor, type ExperienceLevel } from '../domain/program';
+import {
+  buildCoreExercises,
+  buildVolumeSquatExercise,
+  CORE_EXERCISE_IDS,
+  nextWorkoutType,
+  volumeSquatWeightFor,
+  WORKOUT_TEMPLATES,
+  warmupFloor,
+  workSetRepTargets,
+  type ExperienceLevel,
+} from '../domain/program';
 import { applyProgression, exerciseSucceeded, failedWorkSets, recomputeExerciseStates, warmupWeightsFromLog, type FailedSetInfo } from '../domain/progression';
 import { generateWarmupSets } from '../domain/warmup';
 import { canResumeWorkout } from '../domain/resume';
@@ -85,6 +95,7 @@ export interface NewExerciseInput {
   kind: ExerciseKind;
   defaultSets: number;
   defaultReps: number;
+  repScheme?: number[] | null;
   startingWeight: number;
   increment: number;
   progression: ProgressionScheme;
@@ -142,10 +153,12 @@ function buildSetsForExercise(
     }
   }
 
-  for (let i = 0; i < exercise.defaultSets; i++) {
+  // One work set per rep target. Every work set carries the same weight; only
+  // the rep target varies (e.g. the volume squat's 12/10/8/8).
+  for (const targetReps of workSetRepTargets(exercise)) {
     sets.push({
       setIndex: index++,
-      targetReps: exercise.defaultReps,
+      targetReps,
       completedReps: null,
       weight: prescribedWeight,
       isWarmup: false,
@@ -190,6 +203,48 @@ async function loadLastFailures(exerciseIds: string[]): Promise<Record<string, F
   return byExercise;
 }
 
+/**
+ * Workout A squats for volume now (12/10/8/8) instead of the heavy 5x5, which
+ * stayed on Workout B. Accounts seeded before that split have no volume squat,
+ * so build one the first time we load them, starting from a percentage of the
+ * heavy squat's current weight rather than from the bar. Runs once; afterwards
+ * the two squats progress independently.
+ *
+ * Mutates `exerciseStates` in place — the caller is mid-`init` and has not
+ * published it to the store yet.
+ */
+async function ensureVolumeSquat(
+  exercises: Exercise[],
+  exerciseStates: Record<string, ExerciseState>,
+  settings: Settings,
+): Promise<Exercise[]> {
+  if (exercises.some((e) => e.id === CORE_EXERCISE_IDS.squatVolume)) return exercises;
+  // No heavy squat means nothing has been seeded at all; onboarding builds the
+  // full core set including the volume squat.
+  const heavySquat = exercises.find((e) => e.id === CORE_EXERCISE_IDS.squat);
+  if (!heavySquat) return exercises;
+
+  const heavyWeight = exerciseStates[heavySquat.id]?.currentWeight ?? heavySquat.startingWeight;
+  const barWeight = heavySquat.barWeight ?? settings.barWeight;
+  const startingWeight = volumeSquatWeightFor(heavyWeight, barWeight, settings.availablePlates);
+  const volumeSquat: Exercise = {
+    ...buildVolumeSquatExercise(settings.unit, barWeight, startingWeight),
+    createdAt: now(),
+  };
+  const volumeSquatState: ExerciseState = {
+    exerciseId: volumeSquat.id,
+    currentWeight: startingWeight,
+    consecutiveFailures: 0,
+    updatedAt: now(),
+    lastWarmupWeights: null,
+  };
+
+  await repo.upsertExercise(volumeSquat);
+  await repo.upsertExerciseState(volumeSquatState);
+  exerciseStates[volumeSquat.id] = volumeSquatState;
+  return [...exercises, volumeSquat];
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   initialized: false,
   settings: repo.DEFAULT_SETTINGS,
@@ -201,7 +256,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   lastFailureByExercise: {},
 
   init: async () => {
-    const [settings, exercises, states, currentWorkout] = await Promise.all([
+    const [settings, storedExercises, states, currentWorkout] = await Promise.all([
       repo.getSettings(),
       repo.getAllExercises(),
       repo.getAllExerciseStates(),
@@ -209,6 +264,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     ]);
     const exerciseStates: Record<string, ExerciseState> = {};
     for (const s of states) exerciseStates[s.exerciseId] = s;
+
+    const exercises = await ensureVolumeSquat(storedExercises, exerciseStates, settings);
+
     set({ settings, exercises, exerciseStates, currentWorkout: currentWorkout ?? null, initialized: true });
   },
 
@@ -740,6 +798,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       isCore: false,
       defaultSets: input.defaultSets,
       defaultReps: input.defaultReps,
+      repScheme: input.repScheme ?? null,
       increment: input.increment,
       progression: input.progression,
       startingWeight: input.startingWeight,

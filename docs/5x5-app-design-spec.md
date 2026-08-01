@@ -270,13 +270,14 @@ Four tabs: Today, History, Progress, Exercises. Settings lives behind a gear in 
 │  │  NEXT WORKOUT                  │  │
 │  │  A                             │  │
 │  │                                │  │
-│  │  Squat              185 LB     │  │
-│  │  ▐███▌▐███▌▐▌                  │  │
-│  │  ──────────────────────────    │  │
-│  │  Bench Press        135 LB     │  │
+│  │  Squat (Volume)     120 LB     │  │
+│  │  12/10/8/8                     │  │
 │  │  ▐███▌▐▌                       │  │
 │  │  ──────────────────────────    │  │
-│  │  Barbell Row        110 LB     │  │
+│  │  Bench Press 5x5    135 LB     │  │
+│  │  ▐███▌▐▌                       │  │
+│  │  ──────────────────────────    │  │
+│  │  Barbell Row 5x5    110 LB     │  │
 │  │  ▐███▌                         │  │
 │  │                                │  │
 │  │  ┌──────────────────────────┐  │  │
@@ -297,6 +298,8 @@ Four tabs: Today, History, Progress, Exercises. Settings lives behind a gear in 
 The letter A or B is set in `display-md` in `--signal`. It is the only signal-colored element besides the button, and it tells the user which session it is before they read anything else.
 
 Recent rows use filled `--chalk-100` dots for passed exercises and hollow `--fail` rings for failed ones.
+
+Each exercise name carries its set-and-rep shape — `5x5`, `1x5`, `12/10/8/8` — in `label` at `--chalk-500`, set in the mono face and trailing the name on the same line. Workout A's volume squat and Workout B's heavy squat are different lifts at different weights, and the shape is what distinguishes them at a glance. The same label appears beside core lift names on the Exercises and onboarding screens. It is never shown on the Workout screen, where the set circles already carry each set's target.
 
 When the last session was finished with work still on it, an `UNFINISHED` card sits above the next-workout card, in the same container treatment. Its A or B is `display-md` in `--chalk-100`, not `--signal`: the signal color stays with the next workout and its button, so the two cards never compete. One line of `body` in `--chalk-300` gives the date and what was left, in the form `Thu 30 Jul · Bench Press not logged.`, and the action is a secondary button reading `Resume workout A`.
 
