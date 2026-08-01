@@ -79,8 +79,12 @@ export interface ResumePrompt {
 /**
  * What Today offers to pick back up: the newest completed session, when it
  * can still be reopened, was finished inside the window, and left work
- * undone. Older sessions stay resumable from History — they just stop
- * pushing themselves at the user.
+ * undone.
+ *
+ * The window governs this prompt only. Past the window the same session is
+ * still reopenable from History, which gates on `canResumeWorkout` alone —
+ * it just stops pushing itself at the user. Sessions older than the newest
+ * are not reopenable anywhere.
  */
 export function resumePrompt(
   allWorkouts: Workout[],
