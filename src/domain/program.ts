@@ -12,12 +12,24 @@ export const CORE_EXERCISE_IDS = {
 } as const;
 
 /**
- * Workout A squats for volume: four work sets of 12/10/8/8 at one lighter
- * weight. Workout B keeps the heavy 5x5. They are separate exercises with
- * separate weights and separate progression tracks — a miss on the volume
- * squat never touches the heavy squat, and vice versa.
+ * Workout A squats for volume: four work sets of 12/10/8/8, ramping up in
+ * weight as the reps come down. Workout B keeps the heavy 5x5. They are
+ * separate exercises with separate weights and separate progression tracks —
+ * a miss on the volume squat never touches the heavy squat, and vice versa.
  */
 export const VOLUME_SQUAT_REP_SCHEME = [12, 10, 8, 8];
+
+/**
+ * The volume squat's load ramp, as a fraction of its tracked weight, one entry
+ * per work set. The set of twelve is the lightest and the last set of eight is
+ * the tracked weight itself.
+ *
+ * Anchoring at the top rather than the bottom is deliberate: `currentWeight`
+ * stays the heaviest work set, so progression, personal records, and the
+ * weight chart read the same thing they read for every other lift, and history
+ * logged before the ramp existed stays comparable.
+ */
+export const VOLUME_SQUAT_LOAD_SCHEME = [0.85, 0.9, 0.95, 1];
 
 /** Where the volume squat starts relative to the heavy squat's current weight. */
 export const VOLUME_SQUAT_PERCENT = 0.65;
@@ -41,6 +53,55 @@ export function workSetRepTargets(
   const scheme = exercise.repScheme;
   if (scheme != null && scheme.length > 0) return [...scheme];
   return Array.from({ length: Math.max(0, exercise.defaultSets) }, () => exercise.defaultReps);
+}
+
+/**
+ * The weight of each work set, in set order, for an exercise prescribed at
+ * `topWeight`. An exercise with no `loadScheme` puts every work set at
+ * `topWeight`; one carrying a ramp scales each set by its own fraction and
+ * rounds *down* to a loadable weight, never below the bar.
+ *
+ * Rounding is per set and independent, so two adjacent sets can land on the
+ * same weight near the bar, where the plate steps are coarse relative to the
+ * load. That is preferred over nudging a set up to keep the ramp visible: the
+ * prescription stays honest, and the gaps open up on their own as the weight
+ * climbs.
+ *
+ * Reads `loadScheme` defensively — rows written before the field existed come
+ * back from Dexie without it, and a scheme whose length no longer matches the
+ * work set list (the rep scheme was edited under it) is ignored rather than
+ * applied to the wrong sets.
+ */
+export function workSetWeights(
+  exercise: Pick<Exercise, 'defaultSets' | 'defaultReps' | 'repScheme' | 'loadScheme' | 'barWeight'>,
+  topWeight: number,
+  availablePlates: number[],
+): number[] {
+  const setCount = workSetRepTargets(exercise).length;
+  const scheme = exercise.loadScheme;
+  if (scheme == null || scheme.length !== setCount) {
+    return Array.from({ length: setCount }, () => topWeight);
+  }
+  const barWeight = exercise.barWeight ?? 0;
+  return scheme.map((fraction) =>
+    Math.max(barWeight, roundDownToLoadable(topWeight * fraction, barWeight, availablePlates)),
+  );
+}
+
+/**
+ * Whether an exercise's work sets actually differ in weight at `topWeight`.
+ * False for every flat exercise, and false for a ramped one whose spread has
+ * collapsed onto a single loadable weight — near the bar the whole ramp can
+ * round to the same number, and the UI should not promise a ramp it is not
+ * showing.
+ */
+export function hasLoadRamp(
+  exercise: Pick<Exercise, 'defaultSets' | 'defaultReps' | 'repScheme' | 'loadScheme' | 'barWeight'>,
+  topWeight: number,
+  availablePlates: number[],
+): boolean {
+  const weights = workSetWeights(exercise, topWeight, availablePlates);
+  return weights.some((w) => w !== weights[0]);
 }
 
 /** "5x5", "1x5", "12/10/8/8" — the set-and-rep shape in one short label. */
@@ -99,6 +160,7 @@ interface CoreLiftDefaults {
   defaultSets: number;
   defaultReps: number;
   repScheme?: number[];
+  loadScheme?: number[];
   floor: Record<Unit, number>;
 }
 
@@ -118,13 +180,15 @@ const CORE_LIFT_DEFAULTS: CoreLiftDefaults[] = [
     id: CORE_EXERCISE_IDS.squatVolume,
     name: 'Squat (Volume)',
     // Roughly VOLUME_SQUAT_PERCENT of the heavy squat's starting weight, on a
-    // loadable step. A new lifter is already at the bar, so there is nowhere
-    // lighter to start.
+    // loadable step. This is the top set of the ramp; the earlier sets come in
+    // under it. A new lifter is already at the bar, so there is nowhere
+    // lighter to start and the ramp simply collapses to a flat load.
     startingWeight: { lb: { new: 45, some: 75 }, kg: { new: 20, some: 32.5 } },
     increment: { lb: 5, kg: 2.5 },
     defaultSets: VOLUME_SQUAT_REP_SCHEME.length,
     defaultReps: VOLUME_SQUAT_REP_SCHEME[0],
     repScheme: VOLUME_SQUAT_REP_SCHEME,
+    loadScheme: VOLUME_SQUAT_LOAD_SCHEME,
     floor: { lb: 45, kg: 20 },
   },
   {
@@ -181,6 +245,7 @@ function buildCoreExercise(def: CoreLiftDefaults, unit: Unit, barWeight: number,
     defaultSets: def.defaultSets,
     defaultReps: def.defaultReps,
     repScheme: def.repScheme ? [...def.repScheme] : null,
+    loadScheme: def.loadScheme ? [...def.loadScheme] : null,
     increment: def.increment[unit],
     progression: 'linear',
     startingWeight,

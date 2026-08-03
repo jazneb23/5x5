@@ -22,6 +22,7 @@ function exercise(overrides: Partial<Exercise> = {}): Exercise {
     defaultSets: 5,
     defaultReps: 5,
     repScheme: null,
+    loadScheme: null,
     increment: 5,
     progression: 'linear',
     startingWeight: 45,

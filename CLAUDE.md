@@ -28,7 +28,9 @@ Vite, React 18, TypeScript strict, Tailwind, Zustand, Dexie, Recharts, vite-plug
 
 **Deadlift.** It is 1x5, one work set of five reps. Not 5x5. This is correct and deliberate.
 
-**The two squats.** Workout A squats for volume — `core-squat-volume`, four sets of 12/10/8/8 at one lighter weight. Workout B squats heavy — `core-squat`, 5x5. They are separate exercises with separate weights and separate progression tracks, and neither is a bug to be reconciled with the other. Requirements section 3.1.
+**The two squats.** Workout A squats for volume — `core-squat-volume`, four sets of 12/10/8/8 that ramp up in weight as the reps come down (85/90/95/100 percent of the tracked weight). Workout B squats heavy — `core-squat`, 5x5 at one weight. They are separate exercises with separate weights and separate progression tracks, and neither is a bug to be reconciled with the other. Requirements section 3.1.
+
+The tracked weight of a ramped exercise is its **top** set, so `currentWeight`, progression, personal records, and the weight chart all mean the same thing they mean for a flat 5x5. The volume squat is the only exercise that ramps; `loadScheme` is null everywhere else.
 
 ## Progression rules, in short
 

@@ -89,6 +89,11 @@ export function ExerciseFormScreen() {
         name,
         kind,
         ...shape,
+        // A load ramp has one entry per work set. Editing the rep prescription
+        // to a different number of sets leaves it pointing at sets that no
+        // longer exist, so drop it and go flat rather than misapply it.
+        loadScheme:
+          existing.loadScheme != null && existing.loadScheme.length === effectiveSets ? existing.loadScheme : null,
         increment,
         progression,
         barWeight: kind === 'barbell' ? barWeight : null,

@@ -3,12 +3,15 @@ import {
   buildCoreExercises,
   buildVolumeSquatExercise,
   CORE_EXERCISE_IDS,
+  hasLoadRamp,
   nextWorkoutType,
   parseRepTargets,
   repSchemeLabel,
   volumeSquatWeightFor,
+  VOLUME_SQUAT_LOAD_SCHEME,
   VOLUME_SQUAT_REP_SCHEME,
   workSetRepTargets,
+  workSetWeights,
   WORKOUT_TEMPLATES,
 } from './program';
 
@@ -194,7 +197,121 @@ describe('buildVolumeSquatExercise', () => {
     expect(volumeSquat.id).toBe(CORE_EXERCISE_IDS.squatVolume);
     expect(volumeSquat.isCore).toBe(true);
     expect(volumeSquat.repScheme).toEqual([12, 10, 8, 8]);
+    expect(volumeSquat.loadScheme).toEqual([0.85, 0.9, 0.95, 1]);
     expect(volumeSquat.startingWeight).toBe(145);
     expect(volumeSquat.increment).toBe(5);
+  });
+});
+
+describe('the volume squat load ramp', () => {
+  it('is the only core lift that ramps; every other one is flat', () => {
+    const exercises = buildCoreExercises('lb', 'some', 45);
+    for (const ex of exercises) {
+      if (ex.id === CORE_EXERCISE_IDS.squatVolume) expect(ex.loadScheme).toEqual(VOLUME_SQUAT_LOAD_SCHEME);
+      else expect(ex.loadScheme).toBeNull();
+    }
+  });
+
+  it('tops out at the tracked weight and never goes above it', () => {
+    expect(VOLUME_SQUAT_LOAD_SCHEME[VOLUME_SQUAT_LOAD_SCHEME.length - 1]).toBe(1);
+    for (const fraction of VOLUME_SQUAT_LOAD_SCHEME) expect(fraction).toBeLessThanOrEqual(1);
+  });
+
+  it('climbs as the reps come down, set for set', () => {
+    expect(VOLUME_SQUAT_LOAD_SCHEME).toHaveLength(VOLUME_SQUAT_REP_SCHEME.length);
+    for (let i = 1; i < VOLUME_SQUAT_LOAD_SCHEME.length; i++) {
+      expect(VOLUME_SQUAT_LOAD_SCHEME[i]).toBeGreaterThanOrEqual(VOLUME_SQUAT_LOAD_SCHEME[i - 1]);
+      expect(VOLUME_SQUAT_REP_SCHEME[i]).toBeLessThanOrEqual(VOLUME_SQUAT_REP_SCHEME[i - 1]);
+    }
+  });
+});
+
+describe('workSetWeights', () => {
+  const flat = { defaultSets: 5, defaultReps: 5, repScheme: null, loadScheme: null, barWeight: 45 };
+  const volumeSquat = {
+    defaultSets: 4,
+    defaultReps: 12,
+    repScheme: VOLUME_SQUAT_REP_SCHEME,
+    loadScheme: VOLUME_SQUAT_LOAD_SCHEME,
+    barWeight: 45,
+  };
+
+  it('puts every work set at the prescribed weight when there is no ramp', () => {
+    expect(workSetWeights(flat, 185, LB_PLATES)).toEqual([185, 185, 185, 185, 185]);
+  });
+
+  it('ramps the volume squat up to the tracked weight as its reps come down', () => {
+    // 200 * [0.85, 0.9, 0.95, 1] = [170, 180, 190, 200], all loadable exactly.
+    expect(workSetWeights(volumeSquat, 200, LB_PLATES)).toEqual([170, 180, 190, 200]);
+  });
+
+  it('makes the last set the tracked weight itself, so the top set never moves', () => {
+    for (const top of [145, 185, 225, 315]) {
+      const weights = workSetWeights(volumeSquat, top, LB_PLATES);
+      expect(weights[weights.length - 1]).toBe(top);
+    }
+  });
+
+  it('rounds each set down to a loadable weight rather than up', () => {
+    // 145 * [0.85, 0.9, 0.95] = [123.25, 130.5, 137.75]; the minimum step is 5.
+    expect(workSetWeights(volumeSquat, 145, LB_PLATES)).toEqual([120, 130, 135, 145]);
+  });
+
+  it('lets two sets share a weight rather than distorting the ramp near the bar', () => {
+    // 50 * [0.85, 0.9, 0.95] = [42.5, 45, 47.5], all at or under the bar.
+    expect(workSetWeights(volumeSquat, 50, LB_PLATES)).toEqual([45, 45, 45, 50]);
+  });
+
+  it('never prescribes less than the bar', () => {
+    for (const w of workSetWeights(volumeSquat, 45, LB_PLATES)) expect(w).toBeGreaterThanOrEqual(45);
+  });
+
+  it('collapses to a flat load at the bar, where there is nowhere lighter to go', () => {
+    expect(workSetWeights(volumeSquat, 45, LB_PLATES)).toEqual([45, 45, 45, 45]);
+  });
+
+  it('ignores a ramp whose length no longer matches the work sets', () => {
+    // The rep prescription was edited to five sets under a four-entry ramp.
+    const mismatched = { ...volumeSquat, repScheme: [12, 10, 8, 8, 8] };
+    expect(workSetWeights(mismatched, 200, LB_PLATES)).toEqual([200, 200, 200, 200, 200]);
+  });
+
+  it('falls back to a flat load for rows written before loadScheme existed', () => {
+    // Dexie hands back exactly what was stored, so the field is missing rather than null.
+    const legacyRow = { defaultSets: 4, defaultReps: 12, repScheme: VOLUME_SQUAT_REP_SCHEME, barWeight: 45 } as Parameters<
+      typeof workSetWeights
+    >[0];
+    expect(workSetWeights(legacyRow, 145, LB_PLATES)).toEqual([145, 145, 145, 145]);
+  });
+
+  it('works in kg, where the plate steps are finer', () => {
+    const kgPlates = [20, 15, 10, 5, 2.5, 1.25];
+    const kgSquat = { ...volumeSquat, barWeight: 20 };
+    // 100 * [0.85, 0.9, 0.95] = [85, 90, 95], all loadable on a 2.5 kg step.
+    expect(workSetWeights(kgSquat, 100, kgPlates)).toEqual([85, 90, 95, 100]);
+  });
+});
+
+describe('hasLoadRamp', () => {
+  const volumeSquat = {
+    defaultSets: 4,
+    defaultReps: 12,
+    repScheme: VOLUME_SQUAT_REP_SCHEME,
+    loadScheme: VOLUME_SQUAT_LOAD_SCHEME,
+    barWeight: 45,
+  };
+
+  it('is false for a flat exercise', () => {
+    expect(hasLoadRamp({ defaultSets: 5, defaultReps: 5, repScheme: null, loadScheme: null, barWeight: 45 }, 185, LB_PLATES)).toBe(
+      false,
+    );
+  });
+
+  it('is true once the ramp actually spreads the sets apart', () => {
+    expect(hasLoadRamp(volumeSquat, 145, LB_PLATES)).toBe(true);
+  });
+
+  it('is false when the whole ramp rounds onto one weight at the bar', () => {
+    expect(hasLoadRamp(volumeSquat, 45, LB_PLATES)).toBe(false);
   });
 });

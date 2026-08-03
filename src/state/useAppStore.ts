@@ -20,6 +20,8 @@ import {
   WORKOUT_TEMPLATES,
   warmupFloor,
   workSetRepTargets,
+  workSetWeights,
+  VOLUME_SQUAT_LOAD_SCHEME,
   type ExperienceLevel,
 } from '../domain/program';
 import { applyProgression, exerciseSucceeded, failedWorkSets, recomputeExerciseStates, warmupWeightsFromLog, type FailedSetInfo } from '../domain/progression';
@@ -132,9 +134,17 @@ function buildSetsForExercise(
   const sets: SetLog[] = [];
   let index = 0;
 
+  // `prescribedWeight` is the top work set. A ramped exercise brings the
+  // earlier sets in under it; a flat one repeats it.
+  const workWeights = workSetWeights(exercise, prescribedWeight, settings.availablePlates);
+
   if (settings.showWarmupSets && exercise.kind === 'barbell' && exercise.barWeight != null) {
     const floor = warmupFloor(exercise.id, settings.unit);
-    const warmups = generateWarmupSets(prescribedWeight, exercise.barWeight, floor, settings.availablePlates);
+    // Warm up to the *first* work set, not the top one. Under a ramp the top
+    // set is two sets away and the work sets in between are the rest of the
+    // ramp — warming up all the way to the top would overshoot the set the
+    // lifter is about to do.
+    const warmups = generateWarmupSets(workWeights[0] ?? prescribedWeight, exercise.barWeight, floor, settings.availablePlates);
     // Reuse last session's actual warmup weights when the ramp shape still
     // matches (same set count); otherwise fall back to the fresh formula
     // recommendation — see domain/warmup.ts section 7.
@@ -153,14 +163,16 @@ function buildSetsForExercise(
     }
   }
 
-  // One work set per rep target. Every work set carries the same weight; only
-  // the rep target varies (e.g. the volume squat's 12/10/8/8).
-  for (const targetReps of workSetRepTargets(exercise)) {
+  // One work set per rep target, each at its own weight — for most exercises
+  // that is the same number repeated, for the volume squat it ramps up as the
+  // reps come down (12/10/8/8 at 85/90/95/100 percent).
+  const repTargets = workSetRepTargets(exercise);
+  for (let i = 0; i < repTargets.length; i++) {
     sets.push({
       setIndex: index++,
-      targetReps,
+      targetReps: repTargets[i],
       completedReps: null,
-      weight: prescribedWeight,
+      weight: workWeights[i] ?? prescribedWeight,
       isWarmup: false,
       loggedAt: null,
     });
@@ -204,6 +216,25 @@ async function loadLastFailures(exerciseIds: string[]): Promise<Record<string, F
 }
 
 /**
+ * The volume squat's sets were flat when it was introduced and ramp now. A row
+ * written in that window has the right reps and no `loadScheme`, so give it
+ * one. Its tracked weight is already the top of the ramp — that is what a flat
+ * prescription at weight W means — so nothing about the weight itself changes;
+ * only the lighter sets underneath appear.
+ *
+ * Left alone if the rep scheme has been edited to a different set count, since
+ * the stock four-entry ramp would not line up with it.
+ */
+async function backfillVolumeSquatLoadScheme(exercises: Exercise[], volumeSquat: Exercise): Promise<Exercise[]> {
+  if (volumeSquat.loadScheme != null) return exercises;
+  if (workSetRepTargets(volumeSquat).length !== VOLUME_SQUAT_LOAD_SCHEME.length) return exercises;
+
+  const updated: Exercise = { ...volumeSquat, loadScheme: [...VOLUME_SQUAT_LOAD_SCHEME] };
+  await repo.upsertExercise(updated);
+  return exercises.map((e) => (e.id === updated.id ? updated : e));
+}
+
+/**
  * Workout A squats for volume now (12/10/8/8) instead of the heavy 5x5, which
  * stayed on Workout B. Accounts seeded before that split have no volume squat,
  * so build one the first time we load them, starting from a percentage of the
@@ -218,7 +249,8 @@ async function ensureVolumeSquat(
   exerciseStates: Record<string, ExerciseState>,
   settings: Settings,
 ): Promise<Exercise[]> {
-  if (exercises.some((e) => e.id === CORE_EXERCISE_IDS.squatVolume)) return exercises;
+  const existing = exercises.find((e) => e.id === CORE_EXERCISE_IDS.squatVolume);
+  if (existing) return backfillVolumeSquatLoadScheme(exercises, existing);
   // No heavy squat means nothing has been seeded at all; onboarding builds the
   // full core set including the volume squat.
   const heavySquat = exercises.find((e) => e.id === CORE_EXERCISE_IDS.squat);
@@ -570,10 +602,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       const oldWarmups = log.sets.filter((s) => s.isWarmup);
       const oldWorkSets = log.sets.filter((s) => !s.isWarmup);
 
+      // The edited number is the top work set. Re-derive the whole ramp from
+      // it so the lighter sets move with it instead of being left behind at
+      // fractions of the old weight.
+      const workWeights = workSetWeights(exercise, weight, settings.availablePlates);
+
       let newWarmups = oldWarmups;
       if (exercise.kind === 'barbell' && exercise.barWeight != null && oldWarmups.length > 0) {
         const floor = warmupFloor(exercise.id, settings.unit);
-        const recommended = generateWarmupSets(weight, exercise.barWeight, floor, settings.availablePlates);
+        const recommended = generateWarmupSets(workWeights[0] ?? weight, exercise.barWeight, floor, settings.availablePlates);
         const loggedCount = oldWarmups.filter((s) => s.completedReps != null).length;
         const kept = oldWarmups.slice(0, loggedCount);
         const rest = recommended.slice(loggedCount).map((w, i2) => ({
@@ -587,10 +624,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         newWarmups = [...kept, ...rest];
       }
 
+      // Sets already logged keep the weight they were actually done at.
       const newWorkSets = oldWorkSets.map((s, i2) => ({
         ...s,
         setIndex: newWarmups.length + i2,
-        weight: s.completedReps != null ? s.weight : weight,
+        weight: s.completedReps != null ? s.weight : workWeights[i2] ?? weight,
       }));
 
       return { ...log, prescribedWeight: weight, sets: [...newWarmups, ...newWorkSets] };
@@ -799,6 +837,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       defaultSets: input.defaultSets,
       defaultReps: input.defaultReps,
       repScheme: input.repScheme ?? null,
+      // Custom exercises are flat. The load ramp is the volume squat's alone,
+      // and there is no UI to author one.
+      loadScheme: null,
       increment: input.increment,
       progression: input.progression,
       startingWeight: input.startingWeight,
