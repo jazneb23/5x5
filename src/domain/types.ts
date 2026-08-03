@@ -28,9 +28,23 @@ export interface Exercise {
   // Per-set rep targets when the work sets are not uniform, one entry per work
   // set, in set order — e.g. the A-day volume squat's [12, 10, 8, 8]. Null
   // means every work set targets `defaultReps`. When present its length is
-  // authoritative over `defaultSets`. Weight is the same across all work sets
-  // either way; this varies reps only, never load.
+  // authoritative over `defaultSets`. This varies reps only; `loadScheme`
+  // varies weight.
   repScheme: number[] | null;
+  // Per-set load, as a fraction of the exercise's tracked weight, one entry per
+  // work set in set order — e.g. the A-day volume squat's
+  // [0.85, 0.9, 0.95, 1], which ramps up as the reps come down. Null means
+  // every work set is at the tracked weight, which is the case for every lift
+  // but the volume squat.
+  //
+  // The tracked weight (`ExerciseState.currentWeight`) is always the *top*
+  // work set, so a fraction is never above 1. That keeps progression, personal
+  // records, and the weight chart reading the heaviest set, exactly as they do
+  // for a flat 5x5.
+  //
+  // Must be the same length as the work set list; a mismatch is treated as no
+  // ramp at all. See `workSetWeights`.
+  loadScheme: number[] | null;
   increment: number; // weight/value added on a successful session
   progression: ProgressionScheme;
   startingWeight: number;

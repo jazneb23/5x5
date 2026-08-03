@@ -106,9 +106,22 @@ src/
 
 Exercise order within a session is fixed and is the order shown above. Legs, then push, then pull.
 
-Workout A squats for volume rather than load: four work sets of 12, 10, 8, 8 reps at one lighter weight. Workout B keeps the heavy 5x5. The two are **separate exercises** with separate ids, separate weights, and separate progression tracks — `core-squat-volume` and `core-squat`. Missing reps on one never touches the other, exactly as Bench and Squat never affect each other.
+Workout A squats for volume rather than load: four work sets of 12, 10, 8, 8 reps, all lighter than the heavy squat. Workout B keeps the heavy 5x5. The two are **separate exercises** with separate ids, separate weights, and separate progression tracks — `core-squat-volume` and `core-squat`. Missing reps on one never touches the other, exactly as Bench and Squat never affect each other.
 
-Every work set of the volume squat is at the same weight. The reps descend; the load does not ramp.
+The volume squat's work sets are **not all at the same weight**. The load ramps up as the reps come down: 85, 90, 95, then 100 percent of the exercise's tracked weight, one step per set.
+
+| Set | Reps | Load |
+|---|---|---|
+| 1 | 12 | 85% |
+| 2 | 10 | 90% |
+| 3 | 8 | 95% |
+| 4 | 8 | 100% |
+
+The tracked weight — `ExerciseState.currentWeight`, the number progression increments and deloads — is the **top** set, the last one. Every fraction is therefore at or below 1, and the heaviest set of the session is the number the user sees on the Today screen. Anchoring at the top rather than the bottom is what keeps progression, personal records, and the weight chart reading the same quantity they read for a flat 5x5.
+
+Each set's weight is `topWeight * fraction`, rounded **down** to a loadable weight by section 5.5 and never below the bar. Rounding is per set and independent, so two adjacent sets may land on the same weight when the load is light relative to the plate steps — at 50 lb on a 45 lb bar the first three sets are all at the bar. This is correct and preferred over nudging a set upward to keep the ramp visually distinct: the prescription stays honest, and the gaps open up on their own as the weight climbs. At the bar itself the ramp collapses to a flat load, because there is nowhere lighter to go.
+
+The volume squat is the only exercise that ramps. Every other lift, core or custom, puts all of its work sets at one weight.
 
 ### 3.2 Alternation
 
@@ -139,7 +152,14 @@ The app does not enforce or require a schedule. It shows what is next and lets t
 
 Deadlift is one work set of five reps after warmups, not five sets. This is deliberate and must not be "corrected" during implementation.
 
-The volume squat is the only lift whose work sets differ from each other. An exercise carries an optional `repScheme` for this: one rep target per work set, in order. When it is absent, every work set targets `defaultReps`. Success still means every work set hit **its own** target — ten reps clears the second set of a 12/10/8/8 but fails the first.
+The volume squat is the only lift whose work sets differ from each other, in reps or in weight. An exercise carries two optional per-set lists for this, both one entry per work set in set order:
+
+- `repScheme` — the rep target of each set. When absent, every work set targets `defaultReps`.
+- `loadScheme` — each set's weight as a fraction of the tracked weight. When absent, every work set is at the tracked weight.
+
+Success still means every work set hit **its own** target — ten reps clears the second set of a 12/10/8/8 but fails the first. Weight plays no part in the success test: a set is judged only against its own rep target, at whatever weight it was prescribed.
+
+The two lists must be the same length as each other and as the work set list. A `loadScheme` whose length does not match is ignored and the exercise loads flat, so editing a rep prescription to a different number of sets can never silently apply the old ramp to the wrong sets.
 
 ---
 
@@ -174,6 +194,10 @@ interface Exercise {
   repScheme: number[] | null;  // per-set rep targets when sets differ, e.g. [12,10,8,8].
                                // null means every work set targets defaultReps.
                                // when present, its length wins over defaultSets.
+  loadScheme: number[] | null; // per-set weight as a fraction of the tracked weight,
+                               // e.g. [0.85,0.9,0.95,1]. null means every work set is
+                               // at the tracked weight. the last entry is 1: the tracked
+                               // weight is the top set. length must match the work sets.
   increment: number;           // weight added on a successful session
   progression: ProgressionScheme;
   startingWeight: number;
@@ -186,7 +210,8 @@ interface Exercise {
 
 interface ExerciseState {
   exerciseId: string;
-  currentWeight: number;       // the weight prescribed for the next session
+  currentWeight: number;       // the weight prescribed for the next session. under a
+                               // loadScheme this is the top set; lighter sets derive from it.
   consecutiveFailures: number; // failed attempts at currentWeight
   updatedAt: number;
 }
@@ -302,9 +327,11 @@ Every increment is editable per exercise in settings, down to the microloading v
 
 Onboarding asks which of the two columns applies and seeds accordingly, then lets the user edit every value on one screen before finishing.
 
-The volume squat seeds at 65 percent of the heavy squat, rounded down to a loadable weight, and follows the squat field on the onboarding screen until the user edits it directly. That derivation happens once. After the first session the two squats progress independently and the volume squat is never recomputed from the heavy one.
+The volume squat seeds at 65 percent of the heavy squat, rounded down to a loadable weight, and follows the squat field on the onboarding screen until the user edits it directly. That derivation happens once. After the first session the two squats progress independently and the volume squat is never recomputed from the heavy one. The seeded number is the volume squat's **top** set; its first three sets come in under it per section 3.1.
 
 An account seeded before Workout A moved to the volume squat gains the exercise on next load, seeded the same way from the heavy squat's **current** weight rather than from the bar.
+
+An account that already has a volume squat from before the load ramp existed has a row with no `loadScheme`, and gains one on next load. Its tracked weight is unchanged by that: a flat prescription at weight W already means W was the heaviest set, so the top set stays exactly where it was and only the lighter sets underneath appear. A volume squat whose rep prescription has been edited to some other number of sets is left flat, since the stock four-entry ramp would not line up with it.
 
 ### 5.5 Loadable weight rounding
 
@@ -360,7 +387,7 @@ Warmup sets are always optional to log. They never affect progression. They are 
 
 Rules:
 
-1. Let `W` be the work weight, `B` the bar weight, `F` the exercise floor (45 lb for squat, bench, and press; 95 lb for deadlift; 65 lb for row).
+1. Let `W` be the work weight, `B` the bar weight, `F` the exercise floor (45 lb for squat, bench, and press; 95 lb for deadlift; 65 lb for row). Under a `loadScheme`, `W` is the **first** work set's weight, not the top set's — warmups lead into the set the lifter is about to do, and the rest of the ramp is itself the ramp up to the top. Warming the volume squat all the way to 100 percent would overshoot a first set prescribed at 85.
 2. If `W <= F + minimumStep`, prescribe two sets of five at `F` and stop.
 3. Otherwise prescribe, in order:
    - 2 sets of 5 at `F`
@@ -483,7 +510,11 @@ Also on this screen:
 - Line chart of work-set weight over time, with deload events marked
 - Estimated 1RM overlay, toggleable. Use Epley: `1RM = w * (1 + reps / 30)`.
 - Stats: current weight, all-time best 5x5, total sessions, total volume, longest streak
-- A second chart of session volume, `sets * reps * weight`, over time
+- A second chart of session volume, summed per set as `completedReps * that set's weight`, over time
+
+Where a session's work sets are not all at one weight, "the weight" of that session is its **heaviest** work set, and the reps paired with it in the Epley estimate are that set's own rep target. Ties in weight break toward the higher rep target, which is the harder set. This is what the weight line, the 1RM overlay, and personal records all read.
+
+The pairing matters under a load ramp and is invisible without one. A volume squat session topping out at 200 for eight is a record of 200 at eight reps — not 200 at twelve, which is the first set's rep target at a weight that was never lifted for twelve. Session volume is likewise summed set by set at each set's own weight; multiplying every rep by the top weight would overstate it.
 
 ### 9.6 Exercises
 

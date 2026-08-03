@@ -38,8 +38,12 @@ function isExerciseLogged(log: ExerciseLog): boolean {
 
 type EntrySheetState =
   | { kind: 'reps'; exerciseId: string; setIndex: number; targetReps: number; value: number }
+  // The exercise's top work set. Under a load ramp the lighter sets are
+  // re-derived from it; with no ramp every work set simply follows it.
   | { kind: 'weight'; exerciseId: string; value: number }
-  | { kind: 'warmupWeight'; exerciseId: string; setIndex: number; value: number };
+  // One set on its own, warmup or work — an override that does not disturb
+  // the others.
+  | { kind: 'setWeight'; exerciseId: string; setIndex: number; label: string; value: number };
 
 interface NewExerciseDraft {
   name: string;
@@ -343,6 +347,13 @@ export function WorkoutScreen() {
 
           const warmups = log.sets.filter((s) => s.isWarmup);
           const workSets = log.sets.filter((s) => !s.isWarmup);
+          // The volume squat ramps up in weight as its reps come down, so a
+          // single number for the whole exercise is not enough to load the bar
+          // from. The hero weight and plate strip track the set actually about
+          // to be done, and the per-set weights below spell out the ramp.
+          const isRamped = workSets.some((s) => s.weight !== workSets[0]?.weight);
+          const activeWorkSet = workSets.find((s) => s.completedReps == null) ?? workSets[workSets.length - 1];
+          const heroWeight = activeWorkSet?.weight ?? log.prescribedWeight;
           const nextExercise = !isLastExercise ? exercises.find((e) => e.id === workout.exercises[index + 1]?.exerciseId) : undefined;
           const nextLog = !isLastExercise ? workout.exercises[index + 1] : undefined;
 
@@ -392,18 +403,39 @@ export function WorkoutScreen() {
 
               <button
                 type="button"
-                onClick={() => setEntrySheet({ kind: 'weight', exerciseId: log.exerciseId, value: log.prescribedWeight })}
-                aria-label={`Edit weight, currently ${log.prescribedWeight} ${settings.unit}`}
-                className="mb-4 block w-full text-center"
+                onClick={() =>
+                  isRamped && activeWorkSet
+                    ? setEntrySheet({
+                        kind: 'setWeight',
+                        exerciseId: log.exerciseId,
+                        setIndex: activeWorkSet.setIndex,
+                        label: `Set ${workSets.indexOf(activeWorkSet) + 1} weight`,
+                        value: activeWorkSet.weight,
+                      })
+                    : setEntrySheet({ kind: 'weight', exerciseId: log.exerciseId, value: log.prescribedWeight })
+                }
+                aria-label={
+                  isRamped && activeWorkSet
+                    ? `Edit set ${workSets.indexOf(activeWorkSet) + 1} weight, currently ${heroWeight} ${settings.unit}`
+                    : `Edit weight, currently ${heroWeight} ${settings.unit}`
+                }
+                className="mb-1 block w-full text-center"
               >
-                <span className="font-display text-weight-hero text-chalk-100">{log.prescribedWeight}</span>
+                <span className="font-display text-weight-hero text-chalk-100">{heroWeight}</span>
                 <span className="ml-2 align-baseline text-label text-chalk-500">{settings.unit.toUpperCase()}</span>
               </button>
+
+              {isRamped && activeWorkSet && (
+                <p className="mb-4 text-center text-label uppercase tracking-[0.12em] text-chalk-500">
+                  Set {workSets.indexOf(activeWorkSet) + 1} of {workSets.length}
+                </p>
+              )}
+              {!isRamped && <div className="mb-4" />}
 
               {exercise.kind === 'barbell' && exercise.barWeight != null && (
                 <div className="mb-4 flex justify-center">
                   <PlateStrip
-                    targetWeight={log.prescribedWeight}
+                    targetWeight={heroWeight}
                     barWeight={exercise.barWeight}
                     availablePlates={settings.availablePlates}
                     unit={settings.unit}
@@ -435,7 +467,13 @@ export function WorkoutScreen() {
                           <button
                             type="button"
                             onClick={() =>
-                              setEntrySheet({ kind: 'warmupWeight', exerciseId: log.exerciseId, setIndex: s.setIndex, value: s.weight })
+                              setEntrySheet({
+                                kind: 'setWeight',
+                                exerciseId: log.exerciseId,
+                                setIndex: s.setIndex,
+                                label: 'Warmup weight',
+                                value: s.weight,
+                              })
                             }
                             className="text-label text-chalk-500 underline decoration-dotted underline-offset-2"
                           >
@@ -452,7 +490,31 @@ export function WorkoutScreen() {
 
               <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${workSets.length}, minmax(0, 1fr))` }}>
                 {workSets.map((s) => (
-                  <div key={s.setIndex} className="flex justify-center">
+                  <div key={s.setIndex} className="flex flex-col items-center gap-1.5">
+                    {/* The weight sits above its bubble, so the column reads
+                        top to bottom as "load this, then do these reps". Shown
+                        only when the sets actually differ — on a flat exercise
+                        it would be the hero number repeated five times. */}
+                    {isRamped && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setEntrySheet({
+                            kind: 'setWeight',
+                            exerciseId: log.exerciseId,
+                            setIndex: s.setIndex,
+                            label: `Set ${workSets.indexOf(s) + 1} weight`,
+                            value: s.weight,
+                          })
+                        }
+                        aria-label={`Edit set ${workSets.indexOf(s) + 1} weight, currently ${s.weight} ${settings.unit}`}
+                        className={`font-mono text-data underline decoration-dotted underline-offset-4 ${
+                          s.setIndex === activeWorkSet?.setIndex ? 'text-chalk-100' : 'text-chalk-500'
+                        }`}
+                      >
+                        {s.weight}
+                      </button>
+                    )}
                     <SetCircle
                       set={s}
                       index={workSets.indexOf(s)}
@@ -468,6 +530,18 @@ export function WorkoutScreen() {
               <div className="mt-2 text-center text-data text-chalk-500">
                 {passedCount}/{totalWorkSets} sets
               </div>
+
+              {isRamped && (
+                <div className="mt-2 text-center">
+                  <button
+                    type="button"
+                    onClick={() => setEntrySheet({ kind: 'weight', exerciseId: log.exerciseId, value: log.prescribedWeight })}
+                    className="text-data text-chalk-500 underline decoration-dotted underline-offset-2"
+                  >
+                    Sets scale from {log.prescribedWeight} {settings.unit.toUpperCase()}
+                  </button>
+                </div>
+              )}
 
               <div className="mt-4">
                 <button
@@ -691,14 +765,14 @@ export function WorkoutScreen() {
             ? `Reps (target ${entrySheet.targetReps})`
             : entrySheet?.kind === 'weight'
               ? `Weight (${settings.unit.toUpperCase()})`
-              : entrySheet?.kind === 'warmupWeight'
-                ? `Warmup weight (${settings.unit.toUpperCase()})`
+              : entrySheet?.kind === 'setWeight'
+                ? `${entrySheet.label} (${settings.unit.toUpperCase()})`
                 : ''
         }
         onSubmit={(value) => {
           if (entrySheet?.kind === 'reps') setReps(entrySheet.exerciseId, entrySheet.setIndex, value);
           else if (entrySheet?.kind === 'weight') setExercisePrescribedWeight(entrySheet.exerciseId, value);
-          else if (entrySheet?.kind === 'warmupWeight') setSetWeight(entrySheet.exerciseId, entrySheet.setIndex, value);
+          else if (entrySheet?.kind === 'setWeight') setSetWeight(entrySheet.exerciseId, entrySheet.setIndex, value);
           setEntrySheet(null);
         }}
         onCancel={() => setEntrySheet(null)}

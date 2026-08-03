@@ -40,13 +40,24 @@ export function ProgressScreen() {
         const log = w.exercises.find((e) => e.exerciseId === selected.id);
         if (!log) return null;
         const workSets = log.sets.filter((s) => !s.isWarmup);
-        const reps = workSets[0]?.targetReps ?? 5;
-        const volume = workSets.reduce((sum, s) => sum + (s.completedReps ?? 0) * log.prescribedWeight, 0);
+        // Volume is summed per set at that set's own weight: under a load ramp
+        // the sets are not all at `prescribedWeight`, and multiplying every
+        // rep by the top weight would inflate the total.
+        const volume = workSets.reduce((sum, s) => sum + (s.completedReps ?? 0) * s.weight, 0);
+        // The weight line and its 1RM overlay track the heaviest work set and
+        // the reps that set was prescribed for — the same pairing personal
+        // records use.
+        const top = workSets.reduce<(typeof workSets)[number] | null>(
+          (best, s) => (best == null || s.weight > best.weight || (s.weight === best.weight && s.targetReps > best.targetReps) ? s : best),
+          null,
+        );
+        const weight = top?.weight ?? log.prescribedWeight;
+        const reps = top?.targetReps ?? 5;
         return {
           at: w.completedAt as number,
           date: formatDate(w.completedAt as number),
-          weight: log.prescribedWeight,
-          oneRM: Math.round(estimated1RM(log.prescribedWeight, reps)),
+          weight,
+          oneRM: Math.round(estimated1RM(weight, reps)),
           volume,
         };
       })

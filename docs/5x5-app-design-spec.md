@@ -341,6 +341,37 @@ When the last session was finished with work still on it, an `UNFINISHED` card s
 
 `185` is `weight-hero`, roughly a fifth of the viewport height. `LB` is `label` type in `--chalk-500` sitting on the numeral's baseline. Nothing else competes for that band of the screen. This is the risk this design takes: an aggressive amount of the most valuable screen real estate given to a three digit number. It is justified because that number is the entire reason the user opened the app while standing at a rack.
 
+The hero number is **what to load right now**: the weight of the first work set not yet logged, falling back to the last set once they are all done. For every lift whose sets share one weight — which is all of them but the volume squat — that is the exercise's weight and this says nothing new. For the volume squat, whose load ramps across the session (requirements 3.1), it is the number that keeps the promise the hero number makes. The plate strip beneath it follows the same set, since the two are read together while loading the bar.
+
+An exercise whose sets are not all at one weight gets two additions, and an exercise whose sets are all at one weight gets neither:
+
+```
+│         170 LB                       │
+│        SET 1 OF 4                    │
+│                                      │
+│  ▐███▌▐▌                             │
+│  BAR 45  +  45 15  PER SIDE          │
+│                                      │
+│    170  180  190  200                │
+│   ┌──┐ ┌──┐ ┌──┐ ┌──┐                │
+│   │12│ │10│ │ 8│ │ 8│                │
+│   └──┘ └──┘ └──┘ └──┘                │
+│                                      │
+│    0/4 sets                          │
+│    Sets scale from 200 LB            │
+```
+
+- `SET n OF m` in `label` at `--chalk-500` directly under the hero, naming which set the hero number belongs to. Without it the big number is ambiguous the moment it can change mid-exercise.
+- A weight **above** each set circle in `data`, mono, the active set at `--chalk-100` and the rest at `--chalk-500`, dotted-underlined to read as editable. Tapping one edits that set alone.
+
+Every set's weight is on screen at once — no stepping through them one at a time. The whole ramp is four numbers and it costs one line to show all of it, so the user can see what the session asks of them before they start rather than discovering it a set at a time.
+
+The weight sits above its bubble rather than below so each column reads top to bottom in the order the work happens: load this, then do these reps. It is mono at `data` rather than `label`, because unlike the warmup row's weights — which are reference, tucked inside a collapsed section — these are the numbers the user loads the bar from on their way down the screen to the circle they are about to tap.
+
+Tapping the hero edits the set it names. Tapping `Sets scale from 200 LB`, in `data` at `--chalk-500` below the set count, edits the exercise's top weight and re-derives the whole ramp from it — the equivalent of tapping the hero on a flat exercise, kept as a separate control so a number and the sheet it opens always agree.
+
+The Today screen is unaffected: it shows one weight per exercise, and for a ramped exercise that is the top set — the heaviest thing in the session, and the same quantity every other row shows. The rep-shape label beside the name already carries the fact that the volume squat is shaped differently.
+
 `1 of 3` is `label` type in `--chalk-500`. The exercise name is `title`.
 
 Set circles sit at roughly 62 percent of viewport height, dead center of the thumb arc.
