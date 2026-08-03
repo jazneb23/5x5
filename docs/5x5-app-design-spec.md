@@ -352,17 +352,21 @@ An exercise whose sets are not all at one weight gets two additions, and an exer
 │  ▐███▌▐▌                             │
 │  BAR 45  +  45 15  PER SIDE          │
 │                                      │
+│    170  180  190  200                │
 │   ┌──┐ ┌──┐ ┌──┐ ┌──┐                │
 │   │12│ │10│ │ 8│ │ 8│                │
 │   └──┘ └──┘ └──┘ └──┘                │
-│    170  180  190  200                │
 │                                      │
 │    0/4 sets                          │
 │    Sets scale from 200 LB            │
 ```
 
 - `SET n OF m` in `label` at `--chalk-500` directly under the hero, naming which set the hero number belongs to. Without it the big number is ambiguous the moment it can change mid-exercise.
-- A weight under each set circle in `label`, the active set at `--chalk-100` and the rest at `--chalk-500`, dotted-underlined to read as editable. This is the same treatment the warmup row already gives its per-set weights, and it makes the whole ramp legible at a glance.
+- A weight **above** each set circle in `data`, mono, the active set at `--chalk-100` and the rest at `--chalk-500`, dotted-underlined to read as editable. Tapping one edits that set alone.
+
+Every set's weight is on screen at once — no stepping through them one at a time. The whole ramp is four numbers and it costs one line to show all of it, so the user can see what the session asks of them before they start rather than discovering it a set at a time.
+
+The weight sits above its bubble rather than below so each column reads top to bottom in the order the work happens: load this, then do these reps. It is mono at `data` rather than `label`, because unlike the warmup row's weights — which are reference, tucked inside a collapsed section — these are the numbers the user loads the bar from on their way down the screen to the circle they are about to tap.
 
 Tapping the hero edits the set it names. Tapping `Sets scale from 200 LB`, in `data` at `--chalk-500` below the set count, edits the exercise's top weight and re-derives the whole ramp from it — the equivalent of tapping the hero on a flat exercise, kept as a separate control so a number and the sheet it opens always agree.
 

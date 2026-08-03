@@ -490,17 +490,11 @@ export function WorkoutScreen() {
 
               <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${workSets.length}, minmax(0, 1fr))` }}>
                 {workSets.map((s) => (
-                  <div key={s.setIndex} className="flex flex-col items-center gap-2">
-                    <SetCircle
-                      set={s}
-                      index={workSets.indexOf(s)}
-                      onTap={() => tapSetCircle(log.exerciseId, s.setIndex)}
-                      onLongPress={(current) =>
-                        setEntrySheet({ kind: 'reps', exerciseId: log.exerciseId, setIndex: s.setIndex, targetReps: s.targetReps, value: current })
-                      }
-                    />
-                    {/* Only a ramped exercise needs a weight per set. A flat one
-                        already says it once, big, above the plate strip. */}
+                  <div key={s.setIndex} className="flex flex-col items-center gap-1.5">
+                    {/* The weight sits above its bubble, so the column reads
+                        top to bottom as "load this, then do these reps". Shown
+                        only when the sets actually differ — on a flat exercise
+                        it would be the hero number repeated five times. */}
                     {isRamped && (
                       <button
                         type="button"
@@ -513,13 +507,22 @@ export function WorkoutScreen() {
                             value: s.weight,
                           })
                         }
-                        className={`text-label underline decoration-dotted underline-offset-2 ${
+                        aria-label={`Edit set ${workSets.indexOf(s) + 1} weight, currently ${s.weight} ${settings.unit}`}
+                        className={`font-mono text-data underline decoration-dotted underline-offset-4 ${
                           s.setIndex === activeWorkSet?.setIndex ? 'text-chalk-100' : 'text-chalk-500'
                         }`}
                       >
                         {s.weight}
                       </button>
                     )}
+                    <SetCircle
+                      set={s}
+                      index={workSets.indexOf(s)}
+                      onTap={() => tapSetCircle(log.exerciseId, s.setIndex)}
+                      onLongPress={(current) =>
+                        setEntrySheet({ kind: 'reps', exerciseId: log.exerciseId, setIndex: s.setIndex, targetReps: s.targetReps, value: current })
+                      }
+                    />
                   </div>
                 ))}
               </div>
