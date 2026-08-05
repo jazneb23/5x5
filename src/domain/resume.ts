@@ -78,13 +78,26 @@ export interface ResumePrompt {
 
 /**
  * What Today offers to pick back up: the newest completed session, when it
- * can still be reopened, was finished inside the window, and left work
- * undone.
+ * can still be reopened, was finished inside the window, and left work the
+ * user did not decide against.
  *
- * The window governs this prompt only. Past the window the same session is
- * still reopenable from History, which gates on `canResumeWorkout` alone —
- * it just stops pushing itself at the user. Sessions older than the newest
- * are not reopenable anywhere.
+ * A skip is a decision, not an omission. Skipping an exercise and then
+ * finishing the session is a complete answer to that session, so it does not
+ * raise this prompt on its own — the session would otherwise come back the
+ * next day asking about work the user already ruled out. Unlogged and
+ * partly-logged exercises still raise it: those are work that fell through,
+ * not work that was declined.
+ *
+ * A session that has both still raises the prompt, and the card names
+ * everything left on it, skips included, because that is what reopening will
+ * offer. `unfinishedExercises` is unchanged and still reports skips — the
+ * Workout screen uses it to open a reopened session on the first exercise
+ * with work left, which includes a skipped one.
+ *
+ * The window governs this prompt only. Past the window, or when the only
+ * thing left is a skip, the same session is still reopenable from History,
+ * which gates on `canResumeWorkout` alone — it just stops pushing itself at
+ * the user. Sessions older than the newest are not reopenable anywhere.
  */
 export function resumePrompt(
   allWorkouts: Workout[],
@@ -97,5 +110,6 @@ export function resumePrompt(
   if (now - (workout.completedAt as number) > windowMs) return null;
 
   const unfinished = unfinishedExercises(workout);
-  return unfinished.length > 0 ? { workout, unfinished } : null;
+  const unintended = unfinished.some((u) => u.reason !== 'skipped');
+  return unintended ? { workout, unfinished } : null;
 }
