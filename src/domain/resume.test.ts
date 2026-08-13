@@ -135,6 +135,44 @@ describe('resumePrompt', () => {
     expect(resumePrompt([w], NOW)).toBeNull();
   });
 
+  it('stays quiet when the only thing left was deliberately skipped', () => {
+    const w = workout({
+      completedAt: NOW - DAY,
+      exercises: [log('squat', FULL), log('bench', NONE, { skipped: true, note: 'shoulder' })],
+    });
+    expect(resumePrompt([w], NOW)).toBeNull();
+  });
+
+  it('stays quiet when every exercise was skipped', () => {
+    const w = workout({
+      completedAt: NOW - DAY,
+      exercises: [log('squat', NONE, { skipped: true }), log('bench', NONE, { skipped: true })],
+    });
+    expect(resumePrompt([w], NOW)).toBeNull();
+  });
+
+  it('offers a session with unlogged work, and names the skips on it too', () => {
+    const w = workout({
+      completedAt: NOW - DAY,
+      exercises: [log('squat', NONE, { skipped: true }), log('bench', NONE), log('row', FULL)],
+    });
+    expect(resumePrompt([w], NOW)?.unfinished).toEqual([
+      { exerciseId: 'squat', reason: 'skipped' },
+      { exerciseId: 'bench', reason: 'unlogged' },
+    ]);
+  });
+
+  it('offers a session left partly logged alongside a skip', () => {
+    const w = workout({
+      completedAt: NOW - DAY,
+      exercises: [log('squat', [workSet(0, 5), workSet(1, null)]), log('bench', NONE, { skipped: true })],
+    });
+    expect(resumePrompt([w], NOW)?.unfinished).toEqual([
+      { exerciseId: 'squat', reason: 'partial' },
+      { exerciseId: 'bench', reason: 'skipped' },
+    ]);
+  });
+
   it('stays quiet once the session falls outside the window', () => {
     const w = workout({ completedAt: NOW - RESUME_PROMPT_WINDOW_MS - HOUR, exercises: [log('bench', NONE)] });
     expect(resumePrompt([w], NOW)).toBeNull();
