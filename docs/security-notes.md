@@ -38,6 +38,41 @@ Suppress it in the scanner rather than pinning around it. Removing `obug`
 would mean downgrading `vitest`, which trades a real toolchain for an
 imaginary threat.
 
+## `5x5` — flagged critical/malicious, false positive
+
+Aikido flags `5x5@0.0.0` in `package-lock.json` as critical malware with the
+remediation "Uninstall the package as soon as possible." It is a false
+positive, and the remediation is impossible to follow: the flagged package
+was this project.
+
+`package-lock.json` records the root project in its `packages[""]` entry,
+carrying the `name` and `version` from `package.json`. Ours read `5x5` and
+`0.0.0`. A package named `5x5` also existed on npm, and its malicious
+release was version `0.0.0` — an exact name-and-version collision with our
+own root entry, which is what the scanner matched on. The finding arrived
+with `issue_title: "Unknown"` and no advisory body, because there was no
+real record to attach to it.
+
+The npm-side history, for the record: `5x5` published `0.0.0` (2018-12-18),
+then `0.20.22` and `0.20.2204867` (2022). All three were removed. What
+remains is `0.0.1-security` — npm's `security-holder` placeholder, published
+from `npm/security-holder` with an empty maintainer list, the marker of a
+name seized by npm's security team.
+
+Verified before concluding it was ours:
+
+- No `node_modules/5x5` entry exists anywhere in `package-lock.json`. The
+  only occurrences of the string were the two root `name` declarations.
+- Nothing resolves, downloads, or installs under that name — the root entry
+  has no `resolved` or `integrity` field, because it is not fetched.
+
+Fixed rather than suppressed. The package is `private: true`, so its name is
+never published and means nothing outside this repo; renaming it to
+`five-by-five` costs nothing and removes the collision at the source. That
+is preferable to an ignore rule, which would leave a permanent critical
+exception for someone to re-reason about later. Unlike [`obug`](#obug--flagged-criticalmalicious-false-positive),
+the colliding string was ours to change.
+
 ## Verifying the lockfile
 
 `npm audit` covers known advisories. It does not catch a package that was
