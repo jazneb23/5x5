@@ -73,6 +73,25 @@ is preferable to an ignore rule, which would leave a permanent critical
 exception for someone to re-reason about later. Unlike [`obug`](#obug--flagged-criticalmalicious-false-positive),
 the colliding string was ours to change.
 
+Removing the cause did not close the finding, and this is the part worth
+remembering. Aikido re-evaluates SAST findings against the current tree on
+every scan — the `persist-credentials` issue fixed in the same PR closed
+itself once `main` was rescanned. Malware findings do not. Aikido treats a
+malicious package appearing in a lockfile as an exposure event rather than a
+code state, on the reasoning that if something genuinely malicious was ever
+resolved and installed, deleting the entry does not un-run its install hooks
+on a developer machine or in CI. The record therefore stays open until a
+human closes it.
+
+The tell is the issue ID. A rescan that re-detects a problem opens a new
+finding; ours came back as the same `issue_id` 528996224 it had before the
+fix, meaning it had never been closed rather than freshly matched. So the
+finding was ignored in Aikido with a reason recording the collision, the
+merged fix, and the fact that nothing was ever installed and there was no
+exposure to remediate. Expect the same two-step for any future malware false
+positive: remove the cause so it cannot recur, then retire the existing
+record by hand.
+
 ## Verifying the lockfile
 
 `npm audit` covers known advisories. It does not catch a package that was
